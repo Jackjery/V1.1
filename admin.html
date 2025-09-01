@@ -505,20 +505,35 @@
                 try {
                     this.showImportProgress(true);
                     
-                    const response = await fetch('/api/import', {
+                    const response = await fetch('/api/import-test', {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${this.token}` },
                         body: formData
                     });
 
-                    const result = await response.json();
+                    // 先检查响应状态
+                    console.log('Response status:', response.status);
+                    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+                    // 获取响应文本用于调试
+                    const responseText = await response.text();
+                    console.log('Raw response:', responseText);
+
+                    // 尝试解析JSON
+                    let result;
+                    try {
+                        result = JSON.parse(responseText);
+                    } catch (parseError) {
+                        console.error('JSON解析失败:', parseError);
+                        throw new Error(`服务器返回非JSON格式响应 (状态: ${response.status}): ${responseText.substring(0, 100)}...`);
+                    }
 
                     if (response.ok && result.success) {
                         this.showImportResult('success', `成功导入 ${result.data.imported} 条记录`);
                         await this.loadStats();
                         await this.loadData();
                     } else {
-                        throw new Error(result.error || '导入失败');
+                        throw new Error(result.error || `导入失败 (状态: ${response.status})`);
                     }
 
                 } catch (error) {
