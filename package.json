@@ -1,0 +1,33 @@
+{
+  "name": "satellite-data-analysis-system",
+  "version": "1.0.0",
+  "description": "卫星任务数据分析平台 - 支持 Vercel + Postgres",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Build complete'",
+    "start": "vercel dev",
+    "deploy": "vercel"
+  },
+  "keywords": [
+    "satellite",
+    "data-analysis",
+    "vercel",
+    "postgres",
+    "nodejs"
+  ],
+  "author": "数据分析系统",
+  "license": "MIT",
+  "dependencies": {
+    "bcrypt": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
