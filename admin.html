@@ -496,11 +496,23 @@
                     return;
                 }
 
+                // 调试信息
+                console.log('选中的文件:', this.selectedFile);
+                console.log('文件名:', this.selectedFile.name);
+                console.log('文件大小:', this.selectedFile.size);
+                console.log('文件类型:', this.selectedFile.type);
+
                 const formData = new FormData();
                 formData.append('file', this.selectedFile);
                 formData.append('mode', document.getElementById('importMode').value);
                 formData.append('validate', document.getElementById('validateData').checked);
                 formData.append('batch', document.getElementById('batchProcess').checked);
+                
+                // 调试FormData内容
+                console.log('FormData内容:');
+                for (let [key, value] of formData.entries()) {
+                    console.log(key, ':', value);
+                }
 
                 try {
                     this.showImportProgress(true);
