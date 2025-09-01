@@ -4,6 +4,15 @@
 const { handleCors, handleError, sendSuccess, verifyAuth } = require('../lib/auth');
 const { batchInsertRecords, initDatabase } = require('../lib/db');
 const XLSX = require('xlsx');
+const formidable = require('formidable');
+const fs = require('fs');
+
+// 配置 API 路由以支持文件上传
+export const config = {
+    api: {
+        bodyParser: false,
+    },
+}
 
 export default async function handler(req, res) {
     // 处理CORS
@@ -22,28 +31,47 @@ export default async function handler(req, res) {
         // 确保数据库已初始化
         await initDatabase();
 
+        // 使用formidable解析文件上传
+        const form = formidable({
+            maxFileSize: 10 * 1024 * 1024, // 10MB
+            keepExtensions: true,
+            multiples: false
+        });
+
+        const [fields, files] = await form.parse(req);
+
         // 检查是否有文件上传
-        if (!req.files || !req.files.file) {
+        if (!files.file || !files.file[0]) {
             return res.status(400).json({ error: '请上传Excel文件' });
         }
 
-        const file = req.files.file;
-        const mode = req.body.mode || 'append';
-        const validate = req.body.validate === 'true';
-        const batch = req.body.batch === 'true';
+        const file = files.file[0];
+        const mode = fields.mode ? fields.mode[0] : 'append';
+        const validate = fields.validate ? fields.validate[0] === 'true' : false;
+        const batch = fields.batch ? fields.batch[0] === 'true' : false;
 
         // 验证文件类型
-        if (!file.name.match(/\.(xlsx|xls)$/)) {
+        if (!file.originalFilename.match(/\.(xlsx|xls)$/)) {
+            // 清理临时文件
+            if (file.filepath && fs.existsSync(file.filepath)) {
+                fs.unlinkSync(file.filepath);
+            }
             return res.status(400).json({ error: '仅支持Excel文件格式(.xlsx, .xls)' });
         }
 
         // 读取Excel文件
-        const workbook = XLSX.read(file.data, { type: 'buffer' });
+        const fileBuffer = fs.readFileSync(file.filepath);
+        const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
         // 转换为JSON数据
         const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        
+        // 清理临时文件
+        if (file.filepath && fs.existsSync(file.filepath)) {
+            fs.unlinkSync(file.filepath);
+        }
         
         if (rawData.length === 0) {
             return res.status(400).json({ error: 'Excel文件中没有数据' });
@@ -162,7 +190,7 @@ export default async function handler(req, res) {
             errors: errors.length,
             mode,
             file: {
-                name: file.name,
+                name: file.originalFilename,
                 size: file.size
             }
         }, `成功导入 ${inserted} 条记录`);
