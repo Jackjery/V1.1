@@ -6,6 +6,7 @@
     <title>数据管理 - 卫星任务数据分析平台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
     <script>
         tailwind.config = {
@@ -137,6 +138,10 @@
                         <i class="fa fa-cloud-upload text-4xl text-gray-400 mb-4"></i>
                         <p class="text-gray-600 mb-2">拖拽文件到此处或点击选择文件</p>
                         <p class="text-sm text-gray-500">支持 .xlsx, .xls 格式</p>
+                        <p class="text-xs text-blue-500 mt-1">
+                            <i class="fa fa-info-circle mr-1"></i>
+                            大文件（>4MB）将自动采用客户端分批处理
+                        </p>
                         <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden" />
                     </div>
                     
@@ -502,6 +507,11 @@
                 console.log('文件大小:', this.selectedFile.size);
                 console.log('文件类型:', this.selectedFile.type);
 
+                // 检查文件大小，如果超过4MB则使用客户端处理
+                if (this.selectedFile.size > 4 * 1024 * 1024) {
+                    return await this.importLargeFile();
+                }
+
                 const formData = new FormData();
                 formData.append('file', this.selectedFile);
                 formData.append('mode', document.getElementById('importMode').value);
@@ -588,6 +598,90 @@
 
                 result.classList.remove('hidden');
                 setTimeout(() => result.classList.add('hidden'), 5000);
+            }
+
+            async importLargeFile() {
+                try {
+                    this.showImportProgress(true);
+                    this.showImportResult('info', '正在处理大文件，请稍候...');
+
+                    // 客户端读取Excel文件
+                    const fileBuffer = await this.readFileAsArrayBuffer(this.selectedFile);
+                    const workbook = XLSX.read(fileBuffer, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const data = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                    if (data.length === 0) {
+                        throw new Error('Excel文件中没有数据');
+                    }
+
+                    console.log(`客户端解析完成，共${data.length}条记录`);
+                    
+                    // 分批处理数据
+                    const batchSize = 100;
+                    let totalImported = 0;
+                    
+                    for (let i = 0; i < data.length; i += batchSize) {
+                        const batch = data.slice(i, i + batchSize);
+                        const progress = Math.round(((i + batch.length) / data.length) * 100);
+                        
+                        // 更新进度
+                        document.getElementById('progressBar').style.width = progress + '%';
+                        document.getElementById('progressText').textContent = `${progress}% (${i + batch.length}/${data.length})`;
+                        
+                        try {
+                            const imported = await this.uploadBatch(batch, i === 0 ? document.getElementById('importMode').value : 'append');
+                            totalImported += imported;
+                        } catch (error) {
+                            console.warn(`批次 ${Math.floor(i/batchSize) + 1} 处理失败:`, error);
+                        }
+                        
+                        // 短暂延迟避免过于频繁的请求
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+
+                    this.showImportResult('success', `成功导入 ${totalImported} 条记录（共处理 ${data.length} 条）`);
+                    await this.loadStats();
+                    await this.loadData();
+
+                } catch (error) {
+                    console.error('大文件导入失败:', error);
+                    this.showImportResult('error', '大文件导入失败: ' + error.message);
+                } finally {
+                    this.showImportProgress(false);
+                }
+            }
+
+            async readFileAsArrayBuffer(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(new Error('文件读取失败'));
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            async uploadBatch(batchData, mode) {
+                const response = await fetch('/api/import-batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.token}`
+                    },
+                    body: JSON.stringify({
+                        data: batchData,
+                        mode: mode,
+                        validate: document.getElementById('validateData').checked
+                    })
+                });
+
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error || '批次上传失败');
+                }
+
+                return result.data?.imported || 0;
             }
 
             async loadStats() {
