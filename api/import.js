@@ -4,7 +4,7 @@
 const { handleCors, handleError, sendSuccess, verifyAuth } = require('../lib/auth');
 const { batchInsertRecords, initDatabase } = require('../lib/db');
 const XLSX = require('xlsx');
-const formidable = require('formidable');
+const { IncomingForm } = require('formidable');
 const fs = require('fs');
 
 // 配置 API 路由以支持文件上传
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
         await initDatabase();
 
         // 使用formidable解析文件上传
-        const form = formidable({
+        const form = new IncomingForm({
             maxFileSize: 10 * 1024 * 1024, // 10MB
             keepExtensions: true,
             multiples: false
