@@ -824,9 +824,16 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = new Date(timeValue);
+                            // 严格按照北京时间解析字符串时间，移除时区偏移
+                            const cleanTimeStr = timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                            date = new Date(cleanTimeStr);
                         } else if (typeof timeValue === 'number') {
-                            date = new Date((timeValue - 25569) * 86400000);
+                            // Excel数字时间转换 - 严格按照北京时间，不添加时区偏移
+                            // Excel基准日期为1900年1月1日，但需要减去2天的bug修正
+                            const excelBaseDate = new Date(1900, 0, 1); // 1900年1月1日
+                            const days = Math.floor(timeValue - 1); // Excel从1开始计数，减去1天
+                            const timeInDay = (timeValue - Math.floor(timeValue)) * 24 * 60 * 60 * 1000;
+                            date = new Date(excelBaseDate.getTime() + (days - 1) * 24 * 60 * 60 * 1000 + timeInDay);
                         } else {
                             return;
                         }
