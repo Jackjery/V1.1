@@ -475,15 +475,37 @@
                 if (baseStart > baseEnd) [baseStart, baseEnd] = [baseEnd, baseStart];
                 if (currentStart > currentEnd) [currentStart, currentEnd] = [currentEnd, currentStart];
 
-                // 筛选基期数据
+                // 筛选基期数据 - 严格按北京时间处理
                 const baseData = data.filter(item => {
-                    const itemDate = new Date(item[FIELD_MAPPING['开始时间']]);
+                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    if (!rawTime) return false;
+                    
+                    let itemDate;
+                    if (typeof rawTime === 'string') {
+                        // 移除时区标识，严格按北京时间解析
+                        const cleanTime = rawTime.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                        itemDate = new Date(cleanTime);
+                    } else {
+                        itemDate = new Date(rawTime);
+                    }
+                    
                     return itemDate >= baseStart && itemDate <= baseEnd;
                 });
 
-                // 筛选现期数据
+                // 筛选现期数据 - 严格按北京时间处理
                 const currentData = data.filter(item => {
-                    const itemDate = new Date(item[FIELD_MAPPING['开始时间']]);
+                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    if (!rawTime) return false;
+                    
+                    let itemDate;
+                    if (typeof rawTime === 'string') {
+                        // 移除时区标识，严格按北京时间解析
+                        const cleanTime = rawTime.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                        itemDate = new Date(cleanTime);
+                    } else {
+                        itemDate = new Date(rawTime);
+                    }
+                    
                     return itemDate >= currentStart && itemDate <= currentEnd;
                 });
 
@@ -660,16 +682,18 @@
         // 日期时间工具
         class DateTimeUtil {
             /**
-             * 获取默认的时间范围：现期为当日早8点到前一日早8点，基期为前一日早8点到前前一日早8点
-             * 基于当前系统时间（北京时间）
+             * 获取默认的时间范围：严格按北京时间计算
+             * 现期：当日早8点到前一日早8点
+             * 基期：前一日早8点到前前一日早8点
+             * 基于本地系统时间（假设为北京时间）
              */
             getDefaultPeriods() {
-                // 获取当前系统时间（北京时间由浏览器自动处理）
+                // 获取当前北京时间
                 const now = new Date();
+                console.log('当前北京时间:', this.formatForDisplay(now));
 
-                // 计算现期结束时间：当前日期的早上8点
-                const currentEnd = new Date(now);
-                currentEnd.setHours(8, 0, 0, 0);
+                // 计算现期结束时间：当前日期的早上8点（北京时间）
+                const currentEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 0, 0, 0);
 
                 // 计算现期开始时间：前一天的早上8点
                 const currentStart = new Date(currentEnd);
@@ -681,6 +705,9 @@
                 // 计算基期开始时间：前两天的早上8点
                 const baseStart = new Date(baseEnd);
                 baseStart.setDate(baseStart.getDate() - 1);
+
+                console.log('基期:', this.formatForDisplay(baseStart), '-', this.formatForDisplay(baseEnd));
+                console.log('现期:', this.formatForDisplay(currentStart), '-', this.formatForDisplay(currentEnd));
 
                 return {
                     baseStart,
@@ -912,9 +939,16 @@
                         return;
                     }
 
+                    // 获取当前设置的时间范围
+                    const startDate = document.getElementById('startDate')?.value;
+                    const endDate = document.getElementById('endDate')?.value;
+                    
                     // 加载原始数据
                     const rawData = await this.db.getAllDataWithProgress((p) => {
                         document.getElementById('loadingProgress').style.width = `${p}%`;
+                    }, {
+                        startDate,
+                        endDate
                     });
 
                     this.rawData = rawData;
