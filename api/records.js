@@ -44,11 +44,17 @@ export default async function handler(req, res) {
 
         // 添加过滤条件
         if (startDate) {
-            options.startDate = new Date(startDate);
+            const parsedStartDate = new Date(startDate);
+            if (!isNaN(parsedStartDate.getTime())) {
+                options.startDate = parsedStartDate;
+            }
         }
         
         if (endDate) {
-            options.endDate = new Date(endDate);
+            const parsedEndDate = new Date(endDate);
+            if (!isNaN(parsedEndDate.getTime())) {
+                options.endDate = parsedEndDate;
+            }
         }
         
         if (taskResult) {
