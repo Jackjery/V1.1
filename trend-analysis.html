@@ -750,7 +750,7 @@
             if (endDateInput) endDateInput.value = formatDate(today);
         });
 
-        // 图表生成器（曲线图）
+        // 图表生成器（曲线图）- 优化大数据集处理
         class ChartGenerator {
             constructor() {
                 this.charts = {};
@@ -760,12 +760,65 @@
                     '#3182CE', '#805AD5', '#ED8936', '#ECC94B', '#6B46C1'
                 ];
                 this.lineStyles = ['solid', 'dashed', 'dotted'];
+                this.maxDataPoints = 1000; // 单个图表最大数据点数
+                this.maxSeries = 20; // 最大系列数
             }
 
             destroyChart(chartId) {
                 if (this.charts[chartId]) {
-                    this.charts[chartId].destroy();
+                    try {
+                        this.charts[chartId].destroy();
+                    } catch (error) {
+                        console.warn('销毁图表时发生错误:', error);
+                    }
                     delete this.charts[chartId];
+                }
+                
+                // 清理优化提示
+                this.removeOptimizationNotice(chartId);
+            }
+            
+            showOptimizationNotice(chartId, info) {
+                const chartContainer = document.getElementById(chartId)?.closest('.chart-container');
+                if (!chartContainer) return;
+                
+                // 移除旧的提示
+                this.removeOptimizationNotice(chartId);
+                
+                const notice = document.createElement('div');
+                notice.id = `${chartId}-optimization-notice`;
+                notice.className = 'absolute top-2 right-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded shadow-sm z-10';
+                
+                let message = '已优化显示: ';
+                if (info.originalDataPoints > info.optimizedDataPoints) {
+                    message += `数据点 ${info.originalDataPoints}→${info.optimizedDataPoints}`;
+                }
+                if (info.originalSeries > info.optimizedSeries) {
+                    if (message.length > 10) message += ', ';
+                    message += `系列 ${info.originalSeries}→${info.optimizedSeries}`;
+                }
+                
+                notice.innerHTML = `
+                    <i class="fa fa-info-circle mr-1"></i>${message}
+                    <button onclick="this.parentElement.remove()" class="ml-2 text-blue-600 hover:text-blue-800">
+                        <i class="fa fa-times"></i>
+                    </button>
+                `;
+                
+                chartContainer.appendChild(notice);
+                
+                // 10秒后自动移除
+                setTimeout(() => {
+                    if (notice.parentElement) {
+                        notice.remove();
+                    }
+                }, 10000);
+            }
+            
+            removeOptimizationNotice(chartId) {
+                const notice = document.getElementById(`${chartId}-optimization-notice`);
+                if (notice) {
+                    notice.remove();
                 }
             }
 
@@ -782,39 +835,76 @@
 
                 if (emptyState) emptyState.classList.add('hidden');
 
-                // 曲线图样式配置
-                const styledDatasets = datasets.map((dataset, i) => ({
+                // 大数据集优化：限制数据点和系列数
+                let optimizedLabels = xLabels;
+                let optimizedDatasets = datasets;
+
+                // 如果数据点过多，进行采样
+                if (xLabels.length > this.maxDataPoints) {
+                    console.warn(`数据点过多(${xLabels.length})，自动采样至${this.maxDataPoints}个点`);
+                    const step = Math.ceil(xLabels.length / this.maxDataPoints);
+                    optimizedLabels = xLabels.filter((_, i) => i % step === 0);
+                    optimizedDatasets = datasets.map(dataset => ({
+                        ...dataset,
+                        data: dataset.data.filter((_, i) => i % step === 0)
+                    }));
+                }
+
+                // 如果系列过多，只显示前N个最重要的系列
+                if (datasets.length > this.maxSeries) {
+                    console.warn(`系列过多(${datasets.length})，只显示前${this.maxSeries}个系列`);
+                    // 按数据总和排序，选择最重要的系列
+                    const sortedDatasets = optimizedDatasets
+                        .map((dataset, index) => ({
+                            ...dataset,
+                            originalIndex: index,
+                            totalValue: dataset.data.reduce((sum, val) => sum + (val || 0), 0)
+                        }))
+                        .sort((a, b) => b.totalValue - a.totalValue)
+                        .slice(0, this.maxSeries);
+                    optimizedDatasets = sortedDatasets;
+                }
+
+                // 根据数据量调整性能设置
+                const totalDataPoints = optimizedLabels.length * optimizedDatasets.length;
+                const isLargeDataset = totalDataPoints > 10000;
+
+                // 曲线图样式配置 - 大数据集时简化样式
+                const styledDatasets = optimizedDatasets.map((dataset, i) => ({
                     label: dataset.label,
                     data: dataset.data,
                     borderColor: this.colors[i % this.colors.length],
-                    backgroundColor: `${this.colors[i % this.colors.length]}20`,
-                    borderWidth: 2,
-                    borderDash: this.lineStyles[i % this.lineStyles.length] === 'dashed' ? [5, 5] :
-                                this.lineStyles[i % this.lineStyles.length] === 'dotted' ? [2, 2] : [],
-                    tension: 0.3,
+                    backgroundColor: isLargeDataset ? 'transparent' : `${this.colors[i % this.colors.length]}20`,
+                    borderWidth: isLargeDataset ? 1 : 2,
+                    borderDash: isLargeDataset ? [] : (
+                        this.lineStyles[i % this.lineStyles.length] === 'dashed' ? [5, 5] :
+                        this.lineStyles[i % this.lineStyles.length] === 'dotted' ? [2, 2] : []
+                    ),
+                    tension: isLargeDataset ? 0 : 0.3,
                     fill: false,
                     pointBackgroundColor: this.colors[i % this.colors.length],
-                    pointRadius: 4,
-                    pointHoverRadius: 6
+                    pointRadius: isLargeDataset ? 0 : 4, // 大数据集时隐藏数据点
+                    pointHoverRadius: isLargeDataset ? 3 : 6,
+                    pointHitRadius: isLargeDataset ? 5 : 8
                 }));
 
                 const chart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: xLabels,
+                        labels: optimizedLabels,
                         datasets: styledDatasets
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         interaction: {
-                            mode: 'index',
+                            mode: isLargeDataset ? 'nearest' : 'index',
                             intersect: false,
                         },
                         plugins: {
                             title: {
                                 display: true,
-                                text: title,
+                                text: title + (isLargeDataset ? ' (已优化显示)' : ''),
                                 font: { size: 16 }
                             },
                             legend: {
@@ -822,11 +912,12 @@
                                 labels: {
                                     boxWidth: 12,
                                     usePointStyle: true,
-                                    pointStyle: 'circle'
+                                    pointStyle: 'circle',
+                                    maxWidth: isLargeDataset ? 100 : 200
                                 }
                             },
                             tooltip: {
-                                mode: 'index',
+                                mode: isLargeDataset ? 'nearest' : 'index',
                                 intersect: false,
                                 callbacks: {
                                     label: function(context) {
@@ -837,28 +928,50 @@
                         },
                         scales: {
                             x: {
-                                grid: { display: false },
+                                grid: { display: !isLargeDataset },
                                 ticks: {
                                     maxRotation: 45,
-                                    minRotation: 45
+                                    minRotation: 45,
+                                    maxTicksLimit: isLargeDataset ? 20 : undefined
                                 }
                             },
                             y: {
                                 beginAtZero: true,
+                                grid: { display: !isLargeDataset },
                                 ticks: {
                                     precision: 0,
-                                    stepSize: 1
+                                    stepSize: 1,
+                                    maxTicksLimit: isLargeDataset ? 10 : undefined
                                 }
                             }
                         },
                         animation: {
-                            duration: 1000,
+                            duration: isLargeDataset ? 300 : 1000, // 大数据集时减少动画时间
                             easing: 'easeOutQuart'
-                        }
+                        },
+                        elements: {
+                            point: {
+                                hoverRadius: isLargeDataset ? 3 : 6
+                            }
+                        },
+                        // 性能优化选项
+                        parsing: isLargeDataset ? false : true,
+                        normalized: isLargeDataset ? true : false
                     }
                 });
 
                 this.charts[chartId] = chart;
+                
+                // 显示优化提示
+                if (isLargeDataset || xLabels.length > this.maxDataPoints || datasets.length > this.maxSeries) {
+                    this.showOptimizationNotice(chartId, {
+                        originalDataPoints: xLabels.length,
+                        optimizedDataPoints: optimizedLabels.length,
+                        originalSeries: datasets.length,
+                        optimizedSeries: optimizedDatasets.length
+                    });
+                }
+                
                 return chart;
             }
         }
@@ -1352,8 +1465,15 @@
                         return;
                     }
 
+                    // 获取当前设置的时间范围
+                    const startDate = document.getElementById('startDate')?.value;
+                    const endDate = document.getElementById('endDate')?.value;
+                    
                     const rawData = await this.db.getAllDataWithProgress((p) => {
                         document.getElementById('loadingProgress').style.width = `${p}%`;
+                    }, {
+                        startDate,
+                        endDate
                     });
 
                     this.rawData = rawData;
@@ -1498,19 +1618,29 @@
                 }
             }
 
-            // Helper: 将各种时间值按"文件时间"(本地语义)解析为 Date 对象
-            parseToLocalDate(value) {
+            // Helper: 严格按照北京时间解析各种时间值
+            parseToBeijingTime(value) {
                 if (!value && value !== 0) return null;
-                if (value instanceof Date) return new Date(
-                    value.getFullYear(), value.getMonth(), value.getDate(),
-                    value.getHours(), value.getMinutes(), value.getSeconds(), value.getMilliseconds()
-                );
+                
+                // 如果已经是Date对象，确保按北京时间处理
+                if (value instanceof Date) {
+                    // 创建新的Date对象，避免时区转换问题
+                    return new Date(
+                        value.getFullYear(), value.getMonth(), value.getDate(),
+                        value.getHours(), value.getMinutes(), value.getSeconds(), value.getMilliseconds()
+                    );
+                }
 
                 // 处理 Excel 数字序列（如果有）
                 if (typeof value === 'number') {
-                    // Excel序列号 -> JS 时间（不做时区偏移）
                     try {
-                        return new Date((value - 25569) * 86400000);
+                        // Excel序列号转换为北京时间
+                        const baseDate = new Date(1900, 0, 1); // Excel基准日期
+                        const days = Math.floor(value - 1); // Excel从1开始计数
+                        const hours = (value - Math.floor(value)) * 24;
+                        const date = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+                        date.setHours(Math.floor(hours), Math.floor((hours % 1) * 60), 0, 0);
+                        return date;
                     } catch (e) {
                         return new Date(value);
                     }
@@ -1518,21 +1648,33 @@
 
                 if (typeof value === 'string') {
                     const s = value.trim();
-                    // YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS
-                    const dateTimeMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?$/);
+                    
+                    // 移除时区标识，强制按本地时间(北京时间)解析
+                    const cleanStr = s.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                    
+                    // 标准格式: YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS
+                    const dateTimeMatch = cleanStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
                     if (dateTimeMatch) {
                         const y = parseInt(dateTimeMatch[1], 10);
-                        const m = parseInt(dateTimeMatch[2], 10) - 1;
+                        const m = parseInt(dateTimeMatch[2], 10) - 1; // 月份从0开始
                         const d = parseInt(dateTimeMatch[3], 10);
                         const hh = parseInt(dateTimeMatch[4] || '0', 10);
                         const mm = parseInt(dateTimeMatch[5] || '0', 10);
                         const ss = parseInt(dateTimeMatch[6] || '0', 10);
+                        
+                        // 直接创建北京时间的Date对象
                         return new Date(y, m, d, hh, mm, ss, 0);
                     }
 
-                    // 其他格式，fallback 到 Date 构造（有可能走到 UTC，尽量避免）
-                    const fallback = new Date(s);
-                    if (!isNaN(fallback.getTime())) return fallback;
+                    // 其他格式尝试解析
+                    const fallback = new Date(cleanStr);
+                    if (!isNaN(fallback.getTime())) {
+                        // 确保是按北京时间解释的
+                        return new Date(
+                            fallback.getFullYear(), fallback.getMonth(), fallback.getDate(),
+                            fallback.getHours(), fallback.getMinutes(), fallback.getSeconds()
+                        );
+                    }
 
                     return null;
                 }
@@ -1556,17 +1698,41 @@
                 try {
                     if (startDateStr) {
                         const midStart = makeMidday(startDateStr);
-                        const gStart = this.cycleEngine.getDayGroup
-                            ? (groupType === 'day' ? this.cycleEngine.getDayGroup(midStart) : this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midStart, groupType) : null)
-                            : (this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midStart, groupType) : null);
+                        let gStart;
+                        switch (groupType) {
+                            case 'day':
+                                gStart = this.cycleEngine.getDayGroup(midStart);
+                                break;
+                            case 'week':
+                                gStart = this.cycleEngine.getWeekGroup(midStart);
+                                break;
+                            case 'month':
+                                gStart = this.cycleEngine.getMonthGroup(midStart);
+                                break;
+                            case 'quarter':
+                                gStart = this.cycleEngine.getQuarterGroup(midStart);
+                                break;
+                        }
                         if (gStart) startBound = gStart.rangeStart;
                     }
 
                     if (endDateStr) {
                         const midEnd = makeMidday(endDateStr);
-                        const gEnd = this.cycleEngine.getDayGroup
-                            ? (groupType === 'day' ? this.cycleEngine.getDayGroup(midEnd) : this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midEnd, groupType) : null)
-                            : (this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midEnd, groupType) : null);
+                        let gEnd;
+                        switch (groupType) {
+                            case 'day':
+                                gEnd = this.cycleEngine.getDayGroup(midEnd);
+                                break;
+                            case 'week':
+                                gEnd = this.cycleEngine.getWeekGroup(midEnd);
+                                break;
+                            case 'month':
+                                gEnd = this.cycleEngine.getMonthGroup(midEnd);
+                                break;
+                            case 'quarter':
+                                gEnd = this.cycleEngine.getQuarterGroup(midEnd);
+                                break;
+                        }
 
                         if (gEnd) {
                             // inclusive end bound -> rangeEnd - 1ms
@@ -1574,9 +1740,9 @@
                         }
                     }
                 } catch (err) {
-                    console.warn('computeDateRangeForGroup failed, fallback to local day bounds', err);
-                    if (startDateStr) startBound = this.parseToLocalDate(`${startDateStr} 00:00:00`);
-                    if (endDateStr) endBound = this.parseToLocalDate(`${endDateStr} 23:59:59`);
+                    console.warn('computeDateRangeForGroup failed, fallback to Beijing time bounds', err);
+                    if (startDateStr) startBound = this.parseToBeijingTime(`${startDateStr} 00:00:00`);
+                    if (endDateStr) endBound = this.parseToBeijingTime(`${endDateStr} 23:59:59`);
                 }
 
                 return { startDate: startBound, endDate: endBound };
@@ -1600,11 +1766,12 @@
                 const startBound = range.startDate; // may be null
                 const endBound = range.endDate; // may be null (inclusive)
 
-                // 为了避免浏览器将 YYYY-MM-DD 当成 UTC 导致偏移，我们先把数据副本中的开始时间解析为本地 Date
+                // 严格按照北京时间处理数据中的开始时间字段
                 const normalizedField = FIELD_MAPPING['开始时间'];
                 const dataForFiltering = this.data.map(item => {
                     const newItem = Object.assign({}, item);
-                    newItem[normalizedField] = this.parseToLocalDate(item[normalizedField]);
+                    // 使用北京时间解析函数确保时间准确性
+                    newItem[normalizedField] = this.parseToBeijingTime(item[normalizedField]);
                     return newItem;
                 });
 
