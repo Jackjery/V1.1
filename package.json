@@ -4,10 +4,11 @@
   "description": "卫星任务数据分析平台 - 支持 Vercel + Postgres",
   "main": "index.js",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "node dev-server.js",
     "build": "echo 'Static site - no build needed'",
-    "start": "vercel dev",
-    "deploy": "vercel"
+    "start": "node dev-server.js",
+    "deploy": "vercel",
+    "vercel": "vercel dev"
   },
   "keywords": [
     "satellite",
@@ -20,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^5.1.0",
+    "dotenv": "^17.2.1",
     "formidable": "^3.5.1",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.11.3",
