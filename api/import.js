@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
         // 使用formidable解析文件上传
         const form = new IncomingForm({
-            maxFileSize: 10 * 1024 * 1024, // 10MB
+            maxFileSize: 4.5 * 1024 * 1024, // 4.5MB - Vercel限制
             keepExtensions: true,
             multiples: false
         });
