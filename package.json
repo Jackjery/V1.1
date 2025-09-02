@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "卫星任务数据分析平台 - 支持 Vercel + Postgres",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "dev": "node dev-server.js",
     "build": "echo 'Static site - no build needed'",
