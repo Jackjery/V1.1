@@ -1,6 +1,9 @@
 // 记录列表API接口
 // 路径: /api/records
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 const { handleCors, handleError, sendSuccess, verifyAuth } = require('../lib/auth');
 const { getRecords, initDatabase } = require('../lib/db');
 
