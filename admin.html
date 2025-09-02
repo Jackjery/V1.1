@@ -517,7 +517,7 @@
                 try {
                     this.showImportProgress(true);
                     
-                    const response = await fetch('/api/import-test', {
+                    const response = await fetch('/api/import', {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${this.token}` },
                         body: formData
@@ -541,7 +541,8 @@
                     }
 
                     if (response.ok && result.success) {
-                        this.showImportResult('success', `成功导入 ${result.data.imported} 条记录`);
+                        const importedCount = result.data?.imported || 0;
+                        this.showImportResult('success', `成功导入 ${importedCount} 条记录`);
                         await this.loadStats();
                         await this.loadData();
                     } else {
