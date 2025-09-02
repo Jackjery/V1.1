@@ -1,6 +1,9 @@
 // 统计数据API接口
 // 路径: /api/stats
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
 const { handleCors, handleError, sendSuccess } = require('../lib/auth');
 const { getStats, initDatabase } = require('../lib/db');
 
