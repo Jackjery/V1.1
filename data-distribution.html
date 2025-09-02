@@ -434,7 +434,7 @@
         // 使用API客户端替代IndexedDB
         // SatelliteDB类已在api-client.js中定义
 
-        // 图表生成器
+        // 图表生成器 - 大数据集优化版本
         class ChartGenerator {
             constructor() {
                 this.charts = {};
@@ -443,6 +443,8 @@
                     '#00B42A', '#86909C', '#F7BA1E', '#E53E3E', '#48BB78',
                     '#3182CE', '#805AD5', '#ED8936', '#ECC94B', '#6B46C1'
                 ];
+                this.maxSlices = 15; // 饼图最大分片数
+                this.maxBars = 30; // 柱状图最大柱数
             }
 
             destroyChart(chartId) {
@@ -456,7 +458,7 @@
                 }
             }
 
-            // 生成饼图
+            // 生成饼图 - 大数据集优化版本
             generatePieChart(chartId, title, labels, data) {
                 this.destroyChart(chartId);
                 const ctxEl = document.getElementById(chartId);
@@ -472,14 +474,40 @@
 
                 if (emptyState) emptyState.classList.add('hidden');
 
+                // 大数据集优化：合并小分片
+                let optimizedLabels = [...labels];
+                let optimizedData = [...data];
+                
+                if (labels.length > this.maxSlices) {
+                    console.warn(`饼图分片过多(${labels.length})，将合并为${this.maxSlices}个分片`);
+                    
+                    // 按数值大小排序
+                    const combined = labels.map((label, i) => ({ label, value: data[i] }))
+                        .sort((a, b) => b.value - a.value);
+                    
+                    // 取前N-1个最大的分片
+                    const topSlices = combined.slice(0, this.maxSlices - 1);
+                    const otherSlices = combined.slice(this.maxSlices - 1);
+                    
+                    // 合并其他分片
+                    if (otherSlices.length > 0) {
+                        const otherTotal = otherSlices.reduce((sum, item) => sum + item.value, 0);
+                        topSlices.push({ label: `其他(${otherSlices.length}项)`, value: otherTotal });
+                    }
+                    
+                    optimizedLabels = topSlices.map(item => item.label);
+                    optimizedData = topSlices.map(item => item.value);
+                }
+
                 const chart = new Chart(ctx, {
                     type: 'pie',
                     data: {
-                        labels: labels,
+                        labels: optimizedLabels,
                         datasets: [{
-                            data: data,
-                            backgroundColor: this.colors.slice(0, labels.length),
-                            borderWidth: 1
+                            data: optimizedData,
+                            backgroundColor: this.colors.slice(0, optimizedLabels.length),
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
                         }]
                     },
                     options: {
@@ -488,14 +516,16 @@
                         plugins: {
                             title: {
                                 display: true,
-                                text: title,
+                                text: title + (labels.length > this.maxSlices ? ' (已合并显示)' : ''),
                                 font: { size: 16 }
                             },
                             legend: {
                                 position: 'right',
                                 labels: {
                                     boxWidth: 12,
-                                    padding: 15
+                                    padding: 15,
+                                    usePointStyle: true,
+                                    pointStyle: 'rect'
                                 }
                             },
                             tooltip: {
@@ -505,7 +535,7 @@
                                         const value = context.raw || 0;
                                         const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                         const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                                        return `${label}: ${value} 次 (${percentage}%)`;
+                                        return `${label}: ${value.toLocaleString()} 次 (${percentage}%)`;
                                     }
                                 }
                             }
@@ -513,16 +543,25 @@
                         animation: {
                             animateScale: true,
                             animateRotate: true,
-                            duration: 1000
+                            duration: labels.length > this.maxSlices ? 500 : 1000 // 大数据集时减少动画时间
                         }
                     }
                 });
 
                 this.charts[chartId] = chart;
+                
+                // 显示优化提示
+                if (labels.length > this.maxSlices) {
+                    this.showOptimizationNotice(chartId, {
+                        originalSlices: labels.length,
+                        optimizedSlices: optimizedLabels.length
+                    });
+                }
+                
                 return chart;
             }
 
-            // 生成条形图
+            // 生成条形图 - 大数据集优化版本
             generateBarChart(chartId, title, labels, datasets) {
                 this.destroyChart(chartId);
                 const ctxEl = document.getElementById(chartId);
@@ -538,7 +577,35 @@
 
                 if (emptyState) emptyState.classList.add('hidden');
 
-                const styledDatasets = datasets.map((dataset, i) => ({
+                // 大数据集优化：限制柱数
+                let optimizedLabels = [...labels];
+                let optimizedDatasets = [...datasets];
+                
+                if (labels.length > this.maxBars) {
+                    console.warn(`柱状图条目过多(${labels.length})，将限制为${this.maxBars}个`);
+                    
+                    // 对于多系列数据，按第一个系列的值排序
+                    const firstDataset = datasets[0];
+                    if (firstDataset) {
+                        const combined = labels.map((label, i) => ({
+                            label,
+                            index: i,
+                            value: firstDataset.data[i] || 0
+                        })).sort((a, b) => b.value - a.value);
+                        
+                        // 取前N个最大的项目
+                        const topItems = combined.slice(0, this.maxBars);
+                        const topIndices = topItems.map(item => item.index);
+                        
+                        optimizedLabels = topItems.map(item => item.label);
+                        optimizedDatasets = datasets.map(dataset => ({
+                            ...dataset,
+                            data: topIndices.map(i => dataset.data[i] || 0)
+                        }));
+                    }
+                }
+
+                const styledDatasets = optimizedDatasets.map((dataset, i) => ({
                     label: dataset.label,
                     data: dataset.data,
                     backgroundColor: this.colors[i % this.colors.length] + '80',
@@ -546,10 +613,12 @@
                     borderWidth: 1
                 }));
 
+                const isLargeDataset = optimizedLabels.length > 15;
+
                 const chart = new Chart(ctx, {
                     type: 'bar',
                     data: {
-                        labels: labels,
+                        labels: optimizedLabels,
                         datasets: styledDatasets
                     },
                     options: {
@@ -558,7 +627,7 @@
                         plugins: {
                             title: {
                                 display: true,
-                                text: title,
+                                text: title + (labels.length > this.maxBars ? ' (显示前N项)' : ''),
                                 font: { size: 16 }
                             },
                             legend: {
@@ -572,7 +641,7 @@
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
-                                        return `${context.dataset.label}: ${context.raw} 次`;
+                                        return `${context.dataset.label}: ${context.raw.toLocaleString()} 次`;
                                     }
                                 }
                             }
@@ -581,31 +650,92 @@
                             x: {
                                 grid: { display: false },
                                 ticks: {
-                                    maxRotation: 45,
-                                    minRotation: 45
+                                    maxRotation: isLargeDataset ? 90 : 45,
+                                    minRotation: isLargeDataset ? 45 : 45,
+                                    maxTicksLimit: isLargeDataset ? 20 : undefined
                                 }
                             },
                             y: {
                                 beginAtZero: true,
+                                grid: { display: !isLargeDataset },
                                 ticks: {
                                     precision: 0,
-                                    stepSize: 1
+                                    stepSize: 1,
+                                    maxTicksLimit: isLargeDataset ? 8 : undefined,
+                                    callback: function(value) {
+                                        return value.toLocaleString();
+                                    }
                                 }
                             }
                         },
                         animation: {
-                            duration: 1000
-                        }
+                            duration: isLargeDataset ? 500 : 1000
+                        },
+                        // 性能优化
+                        parsing: isLargeDataset ? false : true,
+                        normalized: isLargeDataset ? true : false
                     }
                 });
 
                 this.charts[chartId] = chart;
+                
+                // 显示优化提示
+                if (labels.length > this.maxBars) {
+                    this.showOptimizationNotice(chartId, {
+                        originalBars: labels.length,
+                        optimizedBars: optimizedLabels.length
+                    });
+                }
+                
                 return chart;
             }
 
             // 销毁所有图表
             destroyAllCharts() {
                 Object.keys(this.charts).forEach(id => this.destroyChart(id));
+            }
+            
+            // 显示优化提示
+            showOptimizationNotice(chartId, info) {
+                const chartContainer = document.getElementById(chartId)?.closest('.chart-container');
+                if (!chartContainer) return;
+                
+                // 移除旧的提示
+                this.removeOptimizationNotice(chartId);
+                
+                const notice = document.createElement('div');
+                notice.id = `${chartId}-optimization-notice`;
+                notice.className = 'absolute top-2 right-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded shadow-sm z-10';
+                
+                let message = '已优化显示: ';
+                if (info.originalSlices && info.optimizedSlices) {
+                    message += `分片 ${info.originalSlices}→${info.optimizedSlices}`;
+                } else if (info.originalBars && info.optimizedBars) {
+                    message += `条目 ${info.originalBars}→${info.optimizedBars}`;
+                }
+                
+                notice.innerHTML = `
+                    <i class="fa fa-info-circle mr-1"></i>${message}
+                    <button onclick="this.parentElement.remove()" class="ml-2 text-blue-600 hover:text-blue-800">
+                        <i class="fa fa-times"></i>
+                    </button>
+                `;
+                
+                chartContainer.appendChild(notice);
+                
+                // 10秒后自动移除
+                setTimeout(() => {
+                    if (notice.parentElement) {
+                        notice.remove();
+                    }
+                }, 10000);
+            }
+            
+            removeOptimizationNotice(chartId) {
+                const notice = document.getElementById(`${chartId}-optimization-notice`);
+                if (notice) {
+                    notice.remove();
+                }
             }
         }
 
@@ -953,9 +1083,16 @@
                         return;
                     }
 
+                    // 获取当前设置的时间范围
+                    const startDate = document.getElementById('startDate')?.value;
+                    const endDate = document.getElementById('endDate')?.value;
+                    
                     // 加载原始数据
                     const rawData = await this.db.getAllDataWithProgress((p) => {
                         document.getElementById('loadingProgress').style.width = `${p}%`;
+                    }, {
+                        startDate,
+                        endDate
                     });
 
                     this.rawData = rawData;
@@ -1173,9 +1310,22 @@
                     return;
                 }
 
-                // 应用筛选 - 按选定时间段进行时间扫描计数
+                // 应用筛选 - 严格按照北京时间进行时间扫描计数
                 this.filteredData = this.data.filter(item => {
-                    const itemDate = new Date(item[FIELD_MAPPING['开始时间']]);
+                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    if (!rawTime) return false;
+                    
+                    // 严格按照北京时间解析时间
+                    let itemDate;
+                    if (typeof rawTime === 'string') {
+                        // 移除时区标识，按北京时间解析
+                        const cleanTime = rawTime.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                        itemDate = new Date(cleanTime);
+                    } else {
+                        itemDate = new Date(rawTime);
+                    }
+                    
+                    // 确保时间比较按北京时间进行
                     return itemDate >= startDateTime && itemDate <= endDateTime;
                 });
 
