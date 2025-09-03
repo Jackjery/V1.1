@@ -144,9 +144,32 @@
                         <button id="cacheStats" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors">
                             <i class="fa fa-info-circle mr-1"></i>缓存信息
                         </button>
+                        <button id="forceRefresh" class="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors">
+                            <i class="fa fa-refresh mr-1"></i>强制刷新
+                        </button>
                         <button id="clearCache" class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors">
                             <i class="fa fa-trash mr-1"></i>清空缓存
                         </button>
+                    </div>
+                </div>
+                
+                <!-- 调试信息区域 -->
+                <div id="debugInfo" class="mt-3 pt-3 border-t border-gray-300 hidden">
+                    <div class="text-xs text-gray-500">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <strong>最后查询:</strong>
+                                <div id="lastQueryInfo">暂无</div>
+                            </div>
+                            <div>
+                                <strong>缓存状态:</strong>
+                                <div id="cacheStatusInfo">未知</div>
+                            </div>
+                            <div>
+                                <strong>数据质量:</strong>
+                                <div id="dataQualityInfo">暂无</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -631,43 +654,121 @@
         // 全局缓存管理器实例
         const cacheManager = new CacheManager();
 
-        // 带缓存的数据获取函数
-        async function fetchDataWithCache(startDate, endDate, groupType = 'daily') {
+        // 带智能验证的缓存数据获取函数
+        async function fetchDataWithCache(startDate, endDate, groupType = 'daily', forceRefresh = false) {
             try {
-                // 生成缓存键
-                const cacheKey = cacheManager.generateCacheKey(startDate, endDate, groupType);
+                // 规范化日期格式，确保API调用的一致性
+                let normalizedStartDate = null;
+                let normalizedEndDate = null;
+                
+                if (startDate) {
+                    // 将 YYYY-MM-DD 格式转换为完整的 datetime 格式
+                    normalizedStartDate = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
+                    console.log('📅 规范化开始时间:', startDate, '->', normalizedStartDate);
+                }
+                
+                if (endDate) {
+                    // 将 YYYY-MM-DD 格式转换为完整的 datetime 格式，结束时间设为当天23:59:59
+                    normalizedEndDate = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
+                    console.log('📅 规范化结束时间:', endDate, '->', normalizedEndDate);
+                }
+                
+                // 生成缓存键（使用规范化的时间）
+                const cacheKey = cacheManager.generateCacheKey(normalizedStartDate, normalizedEndDate, groupType);
                 console.log('🔑 缓存键:', cacheKey);
                 
-                // 首先检查缓存
-                const cachedData = await cacheManager.checkCache(cacheKey);
-                if (cachedData) {
-                    console.log('⚡ 使用缓存数据，跳过API调用');
-                    // 显示缓存状态
-                    updateCacheStatus('缓存命中', `使用本地缓存数据 (${cachedData.length} 条记录)`, 'success');
-                    return cachedData;
+                // 检查是否强制刷新
+                if (forceRefresh) {
+                    console.log('🔄 强制刷新模式，跳过缓存检查');
+                } else {
+                    // 首先检查缓存
+                    const cachedData = await cacheManager.checkCache(cacheKey);
+                    if (cachedData) {
+                        console.log('⚡ 发现缓存数据');
+                        
+                        // 验证缓存数据的完整性
+                        if (normalizedStartDate || normalizedEndDate) {
+                            const validCount = validateTimeRangeData(cachedData, normalizedStartDate, normalizedEndDate);
+                            const cacheQuality = cachedData.length > 0 ? (validCount / cachedData.length) * 100 : 0;
+                            
+                            console.log(`🔍 缓存数据质量检查: ${validCount}/${cachedData.length} (${cacheQuality.toFixed(1)}%)`);
+                            
+                            // 如果缓存数据质量低于95%，则重新获取
+                            if (cacheQuality < 95 && cachedData.length > 0) {
+                                console.warn('⚠️ 缓存数据质量不佳，重新获取数据');
+                                updateCacheStatus('缓存数据不完整', `缓存数据完整性 ${cacheQuality.toFixed(1)}%，重新获取数据`, 'warning');
+                                await cacheManager.deleteCache(cacheKey);
+                            } else {
+                                console.log('✅ 使用高质量缓存数据，跳过API调用');
+                                updateCacheStatus('缓存命中', `使用本地缓存数据 (${cachedData.length} 条记录，完整性 ${cacheQuality.toFixed(1)}%)`, 'success');
+                                updateDebugInfo('缓存命中', 'success', { quality: cacheQuality.toFixed(1), recordCount: cachedData.length });
+                                return cachedData;
+                            }
+                        } else {
+                            // 无时间限制时直接使用缓存
+                            console.log('✅ 使用缓存数据（无时间限制），跳过API调用');
+                            updateCacheStatus('缓存命中', `使用本地缓存数据 (${cachedData.length} 条记录)`, 'success');
+                            return cachedData;
+                        }
+                    }
                 }
 
                 // 缓存未命中，从API获取数据
                 console.log('🌐 缓存未命中，从API获取数据');
                 updateCacheStatus('正在获取数据', '从后端API获取最新数据...', 'loading');
                 
+                // 构建API参数，使用规范化的时间格式
                 const params = {};
-                if (startDate) params.startDate = startDate;
-                if (endDate) params.endDate = endDate;
+                if (normalizedStartDate) {
+                    // 多种格式支持，确保后端能正确解析
+                    params.startDate = normalizedStartDate;
+                    params.start_time = normalizedStartDate; // 备用字段名
+                    params.dateStart = startDate; // 原始日期格式
+                }
+                if (normalizedEndDate) {
+                    params.endDate = normalizedEndDate;
+                    params.end_time = normalizedEndDate; // 备用字段名
+                    params.dateEnd = endDate; // 原始日期格式
+                }
+                
+                // 添加调试信息
+                console.log('🔍 API调用参数详情:', {
+                    originalParams: { startDate, endDate },
+                    normalizedParams: { normalizedStartDate, normalizedEndDate },
+                    apiParams: params
+                });
                 
                 const apiData = await fetchDataFromAPI(params);
                 
                 if (apiData && apiData.length > 0) {
+                    console.log(`✅ API返回数据: ${apiData.length} 条记录`);
+                    
+                    // 验证数据是否真的在时间范围内
+                    if (normalizedStartDate || normalizedEndDate) {
+                        const filteredCount = validateTimeRangeData(apiData, normalizedStartDate, normalizedEndDate);
+                        console.log(`🔍 时间范围验证: API返回 ${apiData.length} 条，其中 ${filteredCount} 条在指定时间范围内`);
+                        
+                        if (filteredCount < apiData.length) {
+                            console.warn('⚠️ 警告: API返回的数据中有部分不在指定时间范围内，可能存在后端筛选问题');
+                        }
+                    }
+                    
                     // 将数据存入缓存
                     await cacheManager.storeCache(cacheKey, apiData);
                     console.log('💾 数据已存入缓存');
                     
                     // 显示成功状态
                     updateCacheStatus('数据获取成功', `从API获取 ${apiData.length} 条记录并已缓存`, 'success');
+                    updateDebugInfo('API获取成功', 'success', { recordCount: apiData.length });
                     
                     return apiData;
                 } else {
-                    updateCacheStatus('无数据', '指定时间范围内没有数据', 'warning');
+                    console.warn('⚠️ API未返回数据');
+                    updateCacheStatus('无数据', `指定时间范围 ${startDate} 至 ${endDate} 内没有数据`, 'warning');
+                    
+                    // 即使无数据也要缓存这个结果，避免重复API调用
+                    await cacheManager.storeCache(cacheKey, []);
+                    
                     return [];
                 }
                 
@@ -676,6 +777,39 @@
                 updateCacheStatus('获取失败', `数据获取失败: ${error.message}`, 'error');
                 return [];
             }
+        }
+
+        // 验证API返回的数据是否在指定时间范围内
+        function validateTimeRangeData(data, startDateTime, endDateTime) {
+            if (!data || !data.length) return 0;
+            if (!startDateTime && !endDateTime) return data.length;
+            
+            let count = 0;
+            const startTime = startDateTime ? new Date(startDateTime) : null;
+            const endTime = endDateTime ? new Date(endDateTime) : null;
+            
+            data.forEach(item => {
+                // 检查多种可能的时间字段
+                const timeValue = item['开始时间'] || item['start_time'] || item.start_time;
+                if (!timeValue) return;
+                
+                let itemDate;
+                if (typeof timeValue === 'string') {
+                    itemDate = new Date(timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim());
+                } else {
+                    itemDate = new Date(timeValue);
+                }
+                
+                if (isNaN(itemDate.getTime())) return;
+                
+                // 检查时间范围
+                if (startTime && itemDate < startTime) return;
+                if (endTime && itemDate > endTime) return;
+                
+                count++;
+            });
+            
+            return count;
         }
 
         // 原始 API 调用函数（不使用缓存）
@@ -740,11 +874,52 @@
             `;
             statusEl.classList.remove('hidden');
 
+            // 更新调试信息
+            updateDebugInfo(title, type);
+
             // 成功状态3秒后自动隐藏
             if (type === 'success') {
                 setTimeout(() => {
                     statusEl.classList.add('hidden');
                 }, 3000);
+            }
+        }
+
+        // 更新调试信息
+        function updateDebugInfo(status, type, additionalInfo = {}) {
+            const debugInfo = document.getElementById('debugInfo');
+            const lastQueryInfo = document.getElementById('lastQueryInfo');
+            const cacheStatusInfo = document.getElementById('cacheStatusInfo');
+            const dataQualityInfo = document.getElementById('dataQualityInfo');
+            
+            if (!debugInfo) return;
+            
+            // 显示调试信息
+            debugInfo.classList.remove('hidden');
+            
+            // 更新最后查询时间
+            if (lastQueryInfo) {
+                lastQueryInfo.textContent = new Date().toLocaleString();
+            }
+            
+            // 更新缓存状态
+            if (cacheStatusInfo) {
+                const statusText = {
+                    loading: '正在加载',
+                    success: '成功',
+                    warning: '警告',
+                    error: '错误',
+                    info: '信息'
+                }[type] || '未知';
+                
+                cacheStatusInfo.textContent = `${statusText} - ${status}`;
+            }
+            
+            // 更新数据质量信息
+            if (dataQualityInfo && additionalInfo.quality) {
+                dataQualityInfo.textContent = `${additionalInfo.quality}% 完整`;
+            } else if (dataQualityInfo && additionalInfo.recordCount) {
+                dataQualityInfo.textContent = `${additionalInfo.recordCount} 条记录`;
             }
         }
 
@@ -1078,10 +1253,15 @@
 
                 // 缓存管理按钮事件
                 const cacheStatsBtn = document.getElementById('cacheStats');
+                const forceRefreshBtn = document.getElementById('forceRefresh');
                 const clearCacheBtn = document.getElementById('clearCache');
                 
                 if (cacheStatsBtn) {
                     cacheStatsBtn.addEventListener('click', () => this.showCacheStats());
+                }
+                
+                if (forceRefreshBtn) {
+                    forceRefreshBtn.addEventListener('click', () => this.forceRefreshCurrentQuery());
                 }
                 
                 if (clearCacheBtn) {
@@ -1159,6 +1339,47 @@
                 } catch (error) {
                     console.error('获取缓存统计失败:', error);
                     updateCacheStatus('获取失败', '无法获取缓存统计信息', 'error');
+                }
+            }
+
+            // 强制刷新当前查询条件的数据
+            async forceRefreshCurrentQuery() {
+                try {
+                    const startDate = this.startDate.value;
+                    const endDate = this.endDate.value;
+                    const groupType = this.groupBy.value;
+                    
+                    if (!startDate && !endDate) {
+                        updateCacheStatus('需要时间范围', '请先设置开始时间或结束时间，然后再进行强制刷新', 'warning');
+                        return;
+                    }
+                    
+                    // 生成当前查询条件的缓存键
+                    const currentCacheKey = cacheManager.generateCacheKey(startDate, endDate, groupType);
+                    
+                    // 删除当前缓存
+                    await cacheManager.deleteCache(currentCacheKey);
+                    console.log('🗑️ 已删除当前查询条件的缓存:', currentCacheKey);
+                    
+                    // 重新获取数据
+                    updateCacheStatus('强制刷新中', '正在从数据库重新获取最新数据...', 'loading');
+                    
+                    const data = await fetchDataWithCache(startDate, endDate, groupType, true); // 强制刷新
+                    
+                    if (data && data.length > 0) {
+                        this.data = data;
+                        updateCacheStatus('刷新成功', `已从数据库重新获取 ${data.length} 条记录`, 'success');
+                        
+                        // 自动重新生成统计图表
+                        await this.generateStatistics();
+                        
+                    } else {
+                        updateCacheStatus('刷新完成', '指定时间范围内没有数据', 'warning');
+                    }
+                    
+                } catch (error) {
+                    console.error('强制刷新失败:', error);
+                    updateCacheStatus('刷新失败', `强制刷新时发生错误: ${error.message}`, 'error');
                 }
             }
 
