@@ -1109,7 +1109,7 @@
                 const fileDate = this.createFileDate(date);
                 console.log(`📁 文件时间: ${fileDate.toLocaleString()}`);
                 
-                // 找到文件时间所属的周期起始日
+                // 找到文件时间所属的周期起始时间
                 // 算法：找到 <= 文件时间的最近的一个 "X日 YY:YY" 时刻
                 let cycleStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate(), hours, minutes, 0, 0);
                 console.log(`📍 当日起始时间: ${cycleStart.toLocaleString()}`);
@@ -1119,8 +1119,10 @@
                     console.log(`⬅️ 文件时间早于当日起始时间，向前推一天`);
                     cycleStart = new Date(cycleStart.getTime() - 24 * 60 * 60 * 1000);
                 } else {
-                    console.log(`➡️ 文件时间在当日起始时间之后，使用当日`);
+                    console.log(`➡️ 文件时间在当日起始时间之后或相等，使用当日`);
                 }
+                
+                console.log(`🎯 最终周期起始时间: ${cycleStart.toLocaleString()}`);
                 
                 // 周期结束时间是下一个起始时间（不含）
                 const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
