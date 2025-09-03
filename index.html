@@ -1101,16 +1101,25 @@
 
             getDayGroup(date) {
                 const dayConfig = this.config.day;
+                console.log(`🔧 日周期配置: ${JSON.stringify(dayConfig)}`);
+                
                 const { hours, minutes } = this.parseTimeToHoursMinutes(dayConfig.start);
+                console.log(`🕐 解析时间: ${dayConfig.start} -> ${hours}时${minutes}分`);
+                
                 const fileDate = this.createFileDate(date);
+                console.log(`📁 文件时间: ${fileDate.toLocaleString()}`);
                 
                 // 找到文件时间所属的周期起始日
                 // 算法：找到 <= 文件时间的最近的一个 "X日 YY:YY" 时刻
                 let cycleStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate(), hours, minutes, 0, 0);
+                console.log(`📍 当日起始时间: ${cycleStart.toLocaleString()}`);
                 
                 // 如果文件时间早于当日的起始时间，则向前找到前一日的起始时间
                 if (fileDate < cycleStart) {
+                    console.log(`⬅️ 文件时间早于当日起始时间，向前推一天`);
                     cycleStart = new Date(cycleStart.getTime() - 24 * 60 * 60 * 1000);
+                } else {
+                    console.log(`➡️ 文件时间在当日起始时间之后，使用当日`);
                 }
                 
                 // 周期结束时间是下一个起始时间（不含）
@@ -1119,7 +1128,8 @@
                 const groupDate = new Date(cycleStart);
                 const groupKey = this.formatDate(groupDate);
                 
-                console.log(`📅 日周期分组 [${dayConfig.start}]: ${fileDate.toLocaleString()} -> ${groupKey} (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                console.log(`📅 日周期分组结果 [${dayConfig.start}]: ${fileDate.toLocaleString()} -> ${groupKey}`);
+                console.log(`📊 周期范围: ${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()}`);
                 
                 return { key: groupKey, label: groupKey, rangeStart: cycleStart, rangeEnd: cycleEnd };
             }
@@ -1603,8 +1613,14 @@
             groupDataByCycle(groupType, startDate, endDate) {
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
+                
+                console.log(`🚀 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
+                console.log(`🔧 当前周期配置:`, this.cycleEngine.config);
 
-                this.data.forEach(item => {
+                let processedCount = 0;
+                let filteredByTimeCount = 0;
+                
+                this.data.forEach((item, index) => {
                     try {
                         const timeValue = item[startTimeField];
                         let date;
@@ -1620,10 +1636,27 @@
                         }
 
                         if (isNaN(date.getTime())) return;
-                        if (startDate && date < startDate) return;
-                        if (endDate && date > endDate) return;
+                        
+                        // 时间范围过滤
+                        if (startDate && date < startDate) {
+                            filteredByTimeCount++;
+                            return;
+                        }
+                        if (endDate && date > endDate) {
+                            filteredByTimeCount++;
+                            return;
+                        }
+
+                        // 每100条数据输出一次示例
+                        if (processedCount < 5 || processedCount % 100 === 0) {
+                            console.log(`📝 处理数据[${index}]: 时间=${date.toLocaleString()}, 计划ID=${item[planIdField]}`);
+                        }
 
                         const groupInfo = this.cycleEngine.getGroup(date, groupType);
+
+                        if (processedCount < 5) {
+                            console.log(`📊 分组结果: ${groupInfo.key} (${groupInfo.label})`);
+                        }
 
                         if (!groups[groupInfo.key]) {
                             groups[groupInfo.key] = {
@@ -1635,6 +1668,7 @@
                                 rangeStart: groupInfo.rangeStart,
                                 rangeEnd: groupInfo.rangeEnd
                             };
+                            console.log(`🆕 新建分组: ${groupInfo.key} - ${groupInfo.label}`);
                         }
 
                         const group = groups[groupInfo.key];
@@ -1642,9 +1676,18 @@
                         group.count = group.planIds.size;
                         group.results.push(item[taskResultField] || '未知');
 
+                        processedCount++;
+
                     } catch (error) {
                         console.warn('处理数据项失败:', item, error);
                     }
+                });
+                
+                console.log(`📊 分组统计完成: 处理${processedCount}条, 时间过滤${filteredByTimeCount}条, 生成${Object.keys(groups).length}个分组`);
+                
+                // 输出各分组的计数
+                Object.values(groups).forEach(group => {
+                    console.log(`📈 分组[${group.key}]: ${group.count}个计划ID, 时间范围${group.rangeStart.toLocaleString()} ~ ${group.rangeEnd.toLocaleString()}`);
                 });
 
                 const statsArray = Object.values(groups).sort((a, b) => a.rangeStart - b.rangeStart);
@@ -1883,7 +1926,13 @@
                     quarter: { startMonth: parseInt(this.quarterStartMonth.value), startTime: this.quarterStartTime.value }
                 };
 
+                console.log('💾 保存新的周期配置:', newConfig);
+                console.log('🔧 更新前的配置:', this.cycleEngine.config);
+                
                 this.cycleEngine.updateConfig(newConfig);
+                
+                console.log('✅ 更新后的配置:', this.cycleEngine.config);
+                
                 showSuccess('周期配置已更新');
                 this.closeGroupingConfig();
             }
