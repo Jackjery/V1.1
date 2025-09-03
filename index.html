@@ -1103,12 +1103,27 @@
                 const dayConfig = this.config.day;
                 const { hours, minutes } = this.parseTimeToHoursMinutes(dayConfig.start);
                 const fileDate = this.createFileDate(date);
-                const referenceStart = this.createFileDate(fileDate);
-                referenceStart.setHours(hours, minutes, 0, 0);
-                const cycleStart = fileDate >= referenceStart ? new Date(referenceStart) : new Date(referenceStart.getTime() - 24 * 60 * 60 * 1000);
-                const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
+                
+                // 构建当日的周期起始时间 X日 YY:YY
+                const todayStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate(), hours, minutes, 0, 0);
+                
+                let cycleStart, cycleEnd;
+                
+                if (fileDate >= todayStart) {
+                    // 如果文件时间 >= 当日的起始时间，属于当日周期
+                    cycleStart = todayStart;
+                    cycleEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000); // 次日 YY:YY
+                } else {
+                    // 如果文件时间 < 当日的起始时间，属于前一日周期
+                    cycleStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000); // 前日 YY:YY
+                    cycleEnd = todayStart; // 当日 YY:YY
+                }
+                
                 const groupDate = new Date(cycleStart);
                 const groupKey = this.formatDate(groupDate);
+                
+                console.log(`📅 日周期分组 [${dayConfig.start}]: ${fileDate.toLocaleString()} -> ${groupKey} (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                
                 return { key: groupKey, label: groupKey, rangeStart: cycleStart, rangeEnd: cycleEnd };
             }
 
@@ -1117,20 +1132,36 @@
                 const startDay = Number(weekConfig.startDay);
                 const { hours, minutes } = this.parseTimeToHoursMinutes(weekConfig.startTime);
                 const fileDate = this.createFileDate(date);
+                
+                // 找到本周指定星期几的起始时间
                 const currentDay = fileDate.getDay();
                 let dayDiff = currentDay - startDay;
                 if (dayDiff < 0) dayDiff += 7;
-                const referenceStart = this.createFileDate(fileDate);
-                referenceStart.setDate(fileDate.getDate() - dayDiff);
-                referenceStart.setHours(hours, minutes, 0, 0);
-                const cycleStart = fileDate >= referenceStart ? new Date(referenceStart) : new Date(referenceStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-                const cycleEnd = new Date(cycleStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+                
+                // 本周的周期起始时间（指定星期几的指定时间）
+                const thisWeekStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate() - dayDiff, hours, minutes, 0, 0);
+                
+                let cycleStart, cycleEnd;
+                
+                if (fileDate >= thisWeekStart) {
+                    // 如果文件时间 >= 本周起始时间，属于本周周期
+                    cycleStart = thisWeekStart;
+                    cycleEnd = new Date(thisWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000); // 下周同一时间
+                } else {
+                    // 如果文件时间 < 本周起始时间，属于上周周期
+                    cycleStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000); // 上周起始时间
+                    cycleEnd = thisWeekStart; // 本周起始时间
+                }
+                
                 const year = cycleStart.getFullYear();
                 const firstDayOfYear = new Date(year, 0, 1);
                 const pastDaysOfYear = (cycleStart - firstDayOfYear) / 86400000;
                 const week = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
                 const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
                 const startDayName = weekDays[startDay];
+                
+                console.log(`📅 周周期分组 [${startDayName} ${weekConfig.startTime}]: ${fileDate.toLocaleString()} -> ${year}-W${String(week).padStart(2, '0')} (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                
                 return { key: `${year}-W${String(week).padStart(2, '0')}`, label: `${year}年第${week}周（${startDayName}）`, rangeStart: cycleStart, rangeEnd: cycleEnd };
             }
 
@@ -1141,36 +1172,49 @@
                 const fileDate = this.createFileDate(date);
                 const currentYear = fileDate.getFullYear();
                 const currentMonth = fileDate.getMonth();
-                const referenceStart = new Date(currentYear, currentMonth, startDate);
-                referenceStart.setHours(hours, minutes, 0, 0);
-                if (referenceStart.getDate() !== startDate) {
-                    referenceStart.setMonth(referenceStart.getMonth() + 1, 0);
-                    referenceStart.setHours(hours, minutes, 0, 0);
+                
+                // 构建本月的周期起始时间 X月startDate日 YY:YY
+                let thisMonthStart = new Date(currentYear, currentMonth, startDate, hours, minutes, 0, 0);
+                
+                // 处理月末日期不存在的情况（如31日在2月）
+                if (thisMonthStart.getDate() !== startDate) {
+                    // 如果指定日期不存在，使用当月最后一天
+                    thisMonthStart = new Date(currentYear, currentMonth + 1, 0, hours, minutes, 0, 0);
                 }
-                let cycleStart;
-                if (fileDate >= referenceStart) {
-                    cycleStart = new Date(referenceStart);
-                } else {
-                    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-                    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-                    cycleStart = new Date(prevYear, prevMonth, startDate);
-                    cycleStart.setHours(hours, minutes, 0, 0);
-                    if (cycleStart.getDate() !== startDate) {
-                        cycleStart.setMonth(cycleStart.getMonth() + 1, 0);
-                        cycleStart.setHours(hours, minutes, 0, 0);
+                
+                let cycleStart, cycleEnd;
+                
+                if (fileDate >= thisMonthStart) {
+                    // 如果文件时间 >= 本月起始时间，属于本月周期
+                    cycleStart = thisMonthStart;
+                    
+                    // 计算下月的起始时间
+                    const nextMonth = currentMonth + 1;
+                    const nextYear = currentYear + (nextMonth > 11 ? 1 : 0);
+                    const adjustedNextMonth = nextMonth > 11 ? 0 : nextMonth;
+                    cycleEnd = new Date(nextYear, adjustedNextMonth, startDate, hours, minutes, 0, 0);
+                    
+                    if (cycleEnd.getDate() !== startDate) {
+                        cycleEnd = new Date(nextYear, adjustedNextMonth + 1, 0, hours, minutes, 0, 0);
                     }
+                } else {
+                    // 如果文件时间 < 本月起始时间，属于上月周期
+                    const prevMonth = currentMonth - 1;
+                    const prevYear = currentYear + (prevMonth < 0 ? -1 : 0);
+                    const adjustedPrevMonth = prevMonth < 0 ? 11 : prevMonth;
+                    
+                    cycleStart = new Date(prevYear, adjustedPrevMonth, startDate, hours, minutes, 0, 0);
+                    if (cycleStart.getDate() !== startDate) {
+                        cycleStart = new Date(prevYear, adjustedPrevMonth + 1, 0, hours, minutes, 0, 0);
+                    }
+                    cycleEnd = thisMonthStart;
                 }
-                const nextMonth = cycleStart.getMonth() + 1;
-                const nextYear = cycleStart.getFullYear() + (nextMonth > 11 ? 1 : 0);
-                const adjustedNextMonth = nextMonth > 11 ? 0 : nextMonth;
-                const cycleEnd = new Date(nextYear, adjustedNextMonth, startDate);
-                cycleEnd.setHours(hours, minutes, 0, 0);
-                if (cycleEnd.getDate() !== startDate) {
-                    cycleEnd.setMonth(cycleEnd.getMonth() + 1, 0);
-                    cycleEnd.setHours(hours, minutes, 0, 0);
-                }
+                
                 const year = cycleStart.getFullYear();
                 const month = cycleStart.getMonth() + 1;
+                
+                console.log(`📅 月周期分组 [${startDate}日 ${monthConfig.startTime}]: ${fileDate.toLocaleString()} -> ${year}-${String(month).padStart(2, '0')} (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                
                 return { key: `${year}-${String(month).padStart(2, '0')}`, label: `${year}年${month}月`, rangeStart: cycleStart, rangeEnd: cycleEnd };
             }
 
@@ -1181,34 +1225,63 @@
                 const fileDate = this.createFileDate(date);
                 const currentYear = fileDate.getFullYear();
                 const currentMonth = fileDate.getMonth() + 1;
-                let currentQuarterStart;
+                
+                // 根据起始月份计算当前应属于的季度起始月
+                let currentQuarterStartMonth;
                 if (startMonth === 1) {
-                    currentQuarterStart = currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : 10;
+                    // Q1:1-3, Q2:4-6, Q3:7-9, Q4:10-12
+                    currentQuarterStartMonth = currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : 10;
                 } else if (startMonth === 4) {
-                    currentQuarterStart = currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : currentMonth <= 12 ? 10 : 1;
+                    // Q1:4-6, Q2:7-9, Q3:10-12, Q4:1-3
+                    currentQuarterStartMonth = currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : 10;
                 } else if (startMonth === 7) {
-                    currentQuarterStart = currentMonth <= 9 ? 7 : currentMonth <= 12 ? 10 : currentMonth <= 3 ? 1 : 4;
+                    // Q1:7-9, Q2:10-12, Q3:1-3, Q4:4-6
+                    currentQuarterStartMonth = currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : 10;
+                } else { // startMonth === 10
+                    // Q1:10-12, Q2:1-3, Q3:4-6, Q4:7-9
+                    currentQuarterStartMonth = currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : currentMonth <= 9 ? 7 : 10;
+                }
+                
+                // 构建本季度的起始时间
+                let thisQuarterYear = currentYear;
+                if (currentQuarterStartMonth > currentMonth) {
+                    thisQuarterYear = currentYear - 1;
+                }
+                
+                const thisQuarterStart = new Date(thisQuarterYear, currentQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
+                
+                let cycleStart, cycleEnd;
+                
+                if (fileDate >= thisQuarterStart) {
+                    // 如果文件时间 >= 本季度起始时间，属于本季度周期
+                    cycleStart = thisQuarterStart;
+                    
+                    // 计算下季度起始时间
+                    let nextQuarterStartMonth = currentQuarterStartMonth + 3;
+                    let nextQuarterYear = thisQuarterYear;
+                    if (nextQuarterStartMonth > 12) {
+                        nextQuarterStartMonth = nextQuarterStartMonth - 12;
+                        nextQuarterYear++;
+                    }
+                    cycleEnd = new Date(nextQuarterYear, nextQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
                 } else {
-                    currentQuarterStart = currentMonth <= 12 ? 10 : currentMonth <= 3 ? 1 : currentMonth <= 6 ? 4 : 7;
+                    // 如果文件时间 < 本季度起始时间，属于上季度周期
+                    let prevQuarterStartMonth = currentQuarterStartMonth - 3;
+                    let prevQuarterYear = thisQuarterYear;
+                    if (prevQuarterStartMonth <= 0) {
+                        prevQuarterStartMonth = prevQuarterStartMonth + 12;
+                        prevQuarterYear--;
+                    }
+                    cycleStart = new Date(prevQuarterYear, prevQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
+                    cycleEnd = thisQuarterStart;
                 }
-                const referenceStart = new Date(
-                    currentQuarterStart <= currentMonth ? currentYear : currentYear - 1,
-                    currentQuarterStart - 1,
-                    1
-                );
-                referenceStart.setHours(hours, minutes, 0, 0);
-                const cycleStart = fileDate >= referenceStart ? referenceStart : new Date(referenceStart.getTime() - 3 * 30 * 24 * 60 * 60 * 1000);
-                let nextQuarterStart = currentQuarterStart + 3;
-                let nextQuarterYear = cycleStart.getFullYear();
-                if (nextQuarterStart > 12) {
-                    nextQuarterStart = nextQuarterStart - 12;
-                    nextQuarterYear++;
-                }
-                const cycleEnd = new Date(nextQuarterYear, nextQuarterStart - 1, 1);
-                cycleEnd.setHours(hours, minutes, 0, 0);
+                
                 const year = cycleStart.getFullYear();
-                const quarter = Math.floor((currentQuarterStart - 1) / 3) + 1;
-                return { key: `${year}-Q${quarter}`, label: `${year}年第${quarter}季度`, rangeStart: cycleStart, rangeEnd: cycleEnd };
+                const quarterNum = Math.floor((cycleStart.getMonth() + 1 - startMonth + 12) % 12 / 3) + 1;
+                
+                console.log(`📅 季度周期分组 [${startMonth}月 ${quarterConfig.startTime}]: ${fileDate.toLocaleString()} -> ${year}-Q${quarterNum} (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                
+                return { key: `${year}-Q${quarterNum}`, label: `${year}年第${quarterNum}季度`, rangeStart: cycleStart, rangeEnd: cycleEnd };
             }
 
             getGroup(date, groupType) {
