@@ -951,58 +951,185 @@
                 }
             }
 
-            // 从API获取所有数据
+            // 从API获取所有数据 - 修复版本
             async fetchAllDataFromAPI() {
                 try {
                     console.log('📡 开始分页获取所有数据...');
                     
                     let allData = [];
                     let offset = 0;
-                    const pageSize = 2000; // 增大页面大小以提高效率
+                    const pageSize = 1000; // 使用较小的页面大小确保稳定性
                     let hasMore = true;
                     let currentPage = 1;
+                    let consecutiveEmptyPages = 0; // 连续空页计数
+                    const maxEmptyPages = 5; // 增加到5个连续空页才停止
+                    const maxAttempts = 1000; // 最多尝试1000页，支持更大数据量
 
-                    while (hasMore) {
-                        console.log(`📄 获取第 ${currentPage} 页数据...`);
-                        this.updatePreloadStatus('获取数据', `正在获取第 ${currentPage} 页数据 (已获取 ${allData.length} 条)...`, 'loading');
+                    while (hasMore && currentPage <= maxAttempts) {
+                        console.log(`📄 [页面 ${currentPage}] 开始获取数据 (offset: ${offset}, limit: ${pageSize}, 已累计: ${allData.length} 条)...`);
+                        this.updatePreloadStatus('获取数据', 
+                            `正在获取第 ${currentPage} 页数据 (已获取 ${allData.length} 条)...`, 
+                            'loading');
+
+                        // 构建明确的分页参数
+                        const params = {
+                            offset: offset,
+                            limit: pageSize,
+                            // 添加排序参数确保数据一致性
+                            order_by: 'start_time',
+                            sort: 'ASC',
+                            // 强制获取全部数据的参数
+                            fetch_all: true,
+                            no_cache: true,
+                            // 确保不被其他条件限制
+                            ignore_filters: true,
+                            force_pagination: true
+                        };
+
+                        console.log('🔍 API调用参数:', params);
 
                         // 获取一页数据
-                        const pageData = await fetchDataFromAPI({
-                            offset: offset,
-                            limit: pageSize
-                        });
+                        const pageData = await this.fetchSinglePageFromAPI(params);
 
                         if (pageData && pageData.length > 0) {
                             allData.push(...pageData);
-                            console.log(`✅ 第${currentPage}页获取到 ${pageData.length} 条记录，累计 ${allData.length} 条`);
-
-                            // 如果返回的数据少于pageSize，说明已经是最后一页
+                            console.log(`✅ [页面 ${currentPage}] 成功获取 ${pageData.length} 条记录，累计总数: ${allData.length} 条`);
+                            
+                            consecutiveEmptyPages = 0; // 重置空页计数
+                            offset += pageSize;
+                            currentPage++;
+                            
+                            // 如果返回的数据少于pageSize，说明可能接近最后一页
                             if (pageData.length < pageSize) {
-                                hasMore = false;
-                                console.log('📋 已获取所有数据');
-                            } else {
-                                offset += pageSize;
-                                currentPage++;
+                                console.log(`📋 [页面 ${currentPage-1}] 返回 ${pageData.length} 条数据，小于页面大小 ${pageSize}，继续获取验证是否还有更多数据`);
+                            }
+                            
+                            // 每10页显示一次进度摘要
+                            if (currentPage % 10 === 0) {
+                                console.log(`🔄 分页进度: 已处理 ${currentPage-1} 页，累计获取 ${allData.length} 条记录`);
                             }
                         } else {
-                            hasMore = false;
-                            console.log('📋 没有更多数据');
+                            consecutiveEmptyPages++;
+                            console.log(`⚠️ [页面 ${currentPage}] 空页面，无数据返回。连续空页计数: ${consecutiveEmptyPages}/${maxEmptyPages}`);
+                            
+                            if (consecutiveEmptyPages >= maxEmptyPages) {
+                                hasMore = false;
+                                console.log(`🏁 连续遇到 ${consecutiveEmptyPages} 个空页面，认为数据获取完成。总计: ${allData.length} 条记录`);
+                            } else {
+                                // 继续尝试下一页
+                                offset += pageSize;
+                                currentPage++;
+                                console.log(`🔄 继续尝试下一页 (${currentPage})，offset: ${offset}`);
+                            }
                         }
 
-                        // 防止无限循环的安全措施
-                        if (allData.length > 200000) {
-                            console.warn('⚠️ 数据量过大，达到安全限制');
+                        // 数据量检查 - 提高限制以支持20万+记录
+                        if (allData.length > 1000000) { // 提高到100万记录限制
+                            console.warn('⚠️ 数据量达到安全限制（100万条），停止获取');
                             hasMore = false;
                         }
+
+                        // 添加延迟以避免过快请求
+                        await new Promise(resolve => setTimeout(resolve, 100));
                     }
 
-                    console.log(`🎉 全数据获取完成！总共 ${allData.length} 条记录`);
+                    // 分页获取结束，显示最终统计
+                    if (currentPage > maxAttempts) {
+                        console.warn(`⚠️ 达到最大分页尝试次数 (${maxAttempts})，停止获取`);
+                    }
+                    
+                    console.log(`🎉 全数据获取完成！`);
+                    console.log(`📊 获取统计: 总页数 ${currentPage-1}，总记录数 ${allData.length}`);
+                    console.log(`🔍 数据完整性: ${allData.length >= 200000 ? '✅ 数据量符合预期(20万+)' : '⚠️ 数据量少于预期'}`);
+                    
+                    // 按时间升序排列
+                    console.log('📊 开始对数据按时间升序排列...');
+                    allData = this.sortDataByTime(allData);
+                    console.log(`✅ 数据排序完成，共 ${allData.length} 条记录按时间升序排列`);
+                    
                     return allData;
 
                 } catch (error) {
                     console.error('❌ 获取全数据失败:', error);
                     throw error;
                 }
+            }
+
+            // 单页API调用函数
+            async fetchSinglePageFromAPI(params) {
+                try {
+                    // 清理参数，过滤空值
+                    const cleanParams = {};
+                    for (const [key, value] of Object.entries(params)) {
+                        if (value !== undefined && value !== null && value !== '') {
+                            cleanParams[key] = value;
+                        }
+                    }
+                    
+                    const qs = new URLSearchParams(cleanParams).toString();
+                    console.log(`🌐 API单页调用: /api/records?${qs}`);
+                    
+                    const response = await fetch(`/api/records?${qs}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (!result.success) {
+                        throw new Error(result.error || '获取数据失败');
+                    }
+
+                    const records = result.data.records || [];
+                    console.log(`📄 单页API返回: ${records.length} 条记录`);
+                    
+                    return records;
+                    
+                } catch (error) {
+                    console.error('❌ 单页API调用失败:', error);
+                    throw error;
+                }
+            }
+
+            // 按时间对数据进行升序排列
+            sortDataByTime(data) {
+                if (!data || !Array.isArray(data)) return [];
+                
+                return data.sort((a, b) => {
+                    // 获取时间字段
+                    const timeA = a.start_time || a['开始时间'] || a.timestamp;
+                    const timeB = b.start_time || b['开始时间'] || b.timestamp;
+                    
+                    if (!timeA || !timeB) return 0;
+                    
+                    // 转换为时间戳
+                    const timestampA = this.parseTimeToTimestamp(timeA);
+                    const timestampB = this.parseTimeToTimestamp(timeB);
+                    
+                    return timestampA - timestampB; // 升序排列
+                });
+            }
+
+            // 解析各种时间格式为时间戳
+            parseTimeToTimestamp(timeValue) {
+                if (typeof timeValue === 'number') {
+                    // 如果已经是时间戳
+                    return timeValue > 1000000000000 ? timeValue : timeValue * 1000;
+                }
+                
+                if (typeof timeValue === 'string') {
+                    // 字符串时间
+                    const cleanTimeStr = timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                    const date = new Date(cleanTimeStr);
+                    return isNaN(date.getTime()) ? 0 : date.getTime();
+                }
+                
+                if (timeValue instanceof Date) {
+                    return timeValue.getTime();
+                }
+                
+                return 0;
             }
 
             // 更新预载状态
