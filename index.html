@@ -108,14 +108,28 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">统计开始日期（文件时间）</label>
-                    <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        统计开始日期（文件时间）
+                        <span class="text-xs text-blue-600 ml-2">🔍 按数据库"开始时间"筛选</span>
+                    </label>
+                    <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/30 focus:border-primary">
                     <p class="text-xs text-gray-500 mt-1">实际从所选日期的周期起始时间开始（基于文件时间）</p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">统计结束日期（文件时间）</label>
-                    <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md">
-                    <p class="text-xs text-gray-500 mt-1">实际到所选日期的周期起始时间结束（基于文件时间）</p>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        统计结束日期（文件时间）
+                        <span class="text-xs text-blue-600 ml-2">🔍 按数据库"开始时间"筛选</span>
+                    </label>
+                    <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                    <p class="text-xs text-gray-500 mt-1">实际到所选日期的周期结束时间截止（基于文件时间）</p>
+                </div>
+            </div>
+            
+            <!-- 时间筛选状态提示 -->
+            <div id="timeFilterStatus" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg hidden">
+                <div class="flex items-center text-blue-800 text-sm">
+                    <i class="fa fa-clock-o mr-2"></i>
+                    <span id="timeFilterStatusText">时间筛选状态</span>
                 </div>
             </div>
 
@@ -722,15 +736,10 @@
                 try {
                     this.dbLoading.classList.remove('hidden');
                     
-                    // 获取当前设置的时间范围（如果有的话）
-                    const startDate = this.startDate?.value;
-                    const endDate = this.endDate?.value;
+                    // 首次加载时获取所有数据（不应用时间筛选）
+                    console.log('🚀 初始化页面，加载所有数据...');
+                    const apiRecords = await fetchDataFromAPI();
                     
-                    const params = {};
-                    if (startDate) params.startDate = startDate;
-                    if (endDate) params.endDate = endDate;
-                    
-                    const apiRecords = await fetchDataFromAPI(params);
                     if (!apiRecords || apiRecords.length === 0) {
                         this.noDataAlert.classList.remove('hidden');
                         this.dbLoading.classList.add('hidden');
@@ -740,6 +749,8 @@
                     this.data = apiRecords;
                     this.noDataAlert.classList.add('hidden');
                     this.setDefaultDates();
+                    
+                    console.log(`✅ 初始化完成，加载了 ${apiRecords.length} 条数据`);
 
                 } catch (error) {
                     console.error('初始化失败:', error);
@@ -799,13 +810,44 @@
                 return { startDate: startBound, endDate: endBound };
             }
 
-            async applyTimeFilter(startDate, endDate) {
-                if (!startDate && !endDate) return; // 如果没有时间筛选条件，跳过
-                
+            async applyTimeFilter() {
                 try {
                     const params = {};
-                    if (startDate) params.startDate = startDate.toISOString().split('T')[0];
-                    if (endDate) params.endDate = endDate.toISOString().split('T')[0];
+                    const timeFilterStatus = document.getElementById('timeFilterStatus');
+                    const timeFilterStatusText = document.getElementById('timeFilterStatusText');
+                    
+                    // 处理开始时间
+                    if (this.startDate.value) {
+                        params.startDate = this.startDate.value;
+                        console.log('📅 开始时间筛选:', this.startDate.value);
+                    }
+                    
+                    // 处理结束时间
+                    if (this.endDate.value) {
+                        params.endDate = this.endDate.value;
+                        console.log('📅 结束时间筛选:', this.endDate.value);
+                    }
+                    
+                    // 如果没有设置任何时间范围，跳过API调用，使用现有数据
+                    if (!params.startDate && !params.endDate) {
+                        console.log('⚠️ 未设置时间范围，使用所有数据');
+                        // 隐藏筛选状态
+                        timeFilterStatus.classList.add('hidden');
+                        return;
+                    }
+                    
+                    // 显示筛选状态
+                    let filterText = '正在应用时间筛选: ';
+                    if (params.startDate && params.endDate) {
+                        filterText += `${params.startDate} 至 ${params.endDate}`;
+                    } else if (params.startDate) {
+                        filterText += `从 ${params.startDate} 开始`;
+                    } else {
+                        filterText += `截至 ${params.endDate}`;
+                    }
+                    
+                    timeFilterStatusText.textContent = filterText;
+                    timeFilterStatus.classList.remove('hidden');
                     
                     console.log('🔍 应用时间筛选，重新获取数据:', params);
                     
@@ -814,33 +856,75 @@
                     if (apiRecords && apiRecords.length > 0) {
                         console.log(`✅ 获取到筛选后的数据: ${apiRecords.length} 条`);
                         this.data = apiRecords;
+                        
+                        // 更新成功状态
+                        timeFilterStatusText.innerHTML = `
+                            <i class="fa fa-check-circle mr-1 text-green-600"></i>
+                            时间筛选成功：获取到 ${apiRecords.length} 条记录 (${filterText.replace('正在应用时间筛选: ', '')})
+                        `;
+                        timeFilterStatus.className = 'mb-4 p-3 bg-green-50 border border-green-200 rounded-lg';
+                        
+                        // 3秒后隐藏成功提示
+                        setTimeout(() => {
+                            timeFilterStatus.classList.add('hidden');
+                            timeFilterStatus.className = 'mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg hidden';
+                        }, 3000);
+                        
                     } else {
-                        console.log('⚠️ 时间筛选未返回数据，保持原有数据');
+                        console.log('⚠️ 时间筛选未返回数据');
+                        this.data = []; // 清空数据以显示空状态
+                        
+                        // 更新警告状态
+                        timeFilterStatusText.innerHTML = `
+                            <i class="fa fa-exclamation-triangle mr-1 text-amber-600"></i>
+                            所选时间范围内没有数据，请调整时间范围
+                        `;
+                        timeFilterStatus.className = 'mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg';
                     }
                 } catch (error) {
                     console.error('时间筛选失败:', error);
-                    // 时间筛选失败时保持原有数据
+                    
+                    // 显示错误状态
+                    const timeFilterStatus = document.getElementById('timeFilterStatus');
+                    const timeFilterStatusText = document.getElementById('timeFilterStatusText');
+                    
+                    timeFilterStatusText.innerHTML = `
+                        <i class="fa fa-exclamation-circle mr-1 text-red-600"></i>
+                        时间筛选失败: ${error.message}
+                    `;
+                    timeFilterStatus.className = 'mb-4 p-3 bg-red-50 border border-red-200 rounded-lg';
+                    timeFilterStatus.classList.remove('hidden');
                 }
             }
 
             async generateStatistics() {
-                if (!this.data) {
-                    showError('当前没有数据，请先导入数据后重试');
-                    return;
-                }
-
                 this.chartLoadingState.classList.remove('hidden');
                 this.chartEmptyState.classList.add('hidden');
                 this.chartErrorState.classList.add('hidden');
                 this.detailTableBody.innerHTML = '';
 
                 try {
+                    // 先应用时间筛选，等待API数据返回
+                    await this.applyTimeFilter();
+
+                    // 检查筛选后是否有数据
+                    if (!this.data || this.data.length === 0) {
+                        this.chartEmptyState.classList.remove('hidden');
+                        return;
+                    }
+
                     const groupType = this.groupBy.value;
                     const range = this.computeDateRangeForGroup(groupType, this.startDate.value, this.endDate.value);
                     const startDate = range.startDate;
                     const endDate = range.endDate;
 
+                    // 用筛选后的数据生成统计
                     const stats = this.groupDataByCycle(groupType, startDate, endDate);
+                    
+                    if (stats.length === 0) {
+                        this.chartEmptyState.classList.remove('hidden');
+                        return;
+                    }
                     
                     this.updateChart(stats, groupType);
                     this.updateStatCards(stats);
@@ -859,8 +943,7 @@
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
 
-                // 应用时间筛选并重新获取数据
-                this.applyTimeFilter(startDate, endDate);
+                // 时间筛选已在generateStatistics中完成，这里直接处理数据
 
                 this.data.forEach(item => {
                     try {
