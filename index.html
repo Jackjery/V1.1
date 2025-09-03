@@ -738,7 +738,8 @@
                     apiParams: params
                 });
                 
-                const apiData = await fetchDataFromAPI(params);
+                // 使用分页获取完整数据
+                const apiData = await fetchAllDataFromAPI(params);
                 
                 if (apiData && apiData.length > 0) {
                     console.log(`✅ API返回数据: ${apiData.length} 条记录`);
@@ -752,6 +753,9 @@
                             console.warn('⚠️ 警告: API返回的数据中有部分不在指定时间范围内，可能存在后端筛选问题');
                         }
                     }
+                    
+                    // 数据完整性检查和警告
+                    await performDataIntegrityCheck(apiData, startDate, endDate);
                     
                     // 将数据存入缓存
                     await cacheManager.storeCache(cacheKey, apiData);
@@ -812,7 +816,165 @@
             return count;
         }
 
-        // 原始 API 调用函数（不使用缓存）
+        // 数据完整性检查函数
+        async function performDataIntegrityCheck(apiData, startDate, endDate) {
+            try {
+                console.log('🔍 开始数据完整性检查...');
+                
+                if (!startDate || !endDate) {
+                    console.log('⏭️ 跳过完整性检查（未设置时间范围）');
+                    return;
+                }
+                
+                // 尝试获取预期的数据总量
+                const expectedCount = await getExpectedDataCount(startDate, endDate);
+                const actualCount = apiData.length;
+                
+                console.log(`📊 数据完整性对比: 预期 ${expectedCount} 条，实际获取 ${actualCount} 条`);
+                
+                if (expectedCount > 0) {
+                    const completeness = (actualCount / expectedCount) * 100;
+                    console.log(`📈 数据完整性: ${completeness.toFixed(1)}%`);
+                    
+                    // 更新调试信息
+                    updateDebugInfo('数据完整性检查', 'info', { 
+                        quality: completeness.toFixed(1),
+                        recordCount: actualCount,
+                        expectedCount: expectedCount
+                    });
+                    
+                    // 如果数据不完整，显示警告
+                    if (completeness < 100) {
+                        const missingCount = expectedCount - actualCount;
+                        console.warn(`⚠️ 数据可能不完整！缺失 ${missingCount} 条记录`);
+                        
+                        updateCacheStatus(
+                            '数据可能不完整', 
+                            `获取了 ${actualCount}/${expectedCount} 条记录 (${completeness.toFixed(1)}%)，可能存在 ${missingCount} 条记录未获取到`, 
+                            'warning'
+                        );
+                        
+                        // 如果完整性低于50%，建议用户检查
+                        if (completeness < 50) {
+                            setTimeout(() => {
+                                if (confirm(`检测到数据不完整！\n\n预期获取: ${expectedCount} 条记录\n实际获取: ${actualCount} 条记录\n完整性: ${completeness.toFixed(1)}%\n\n是否需要重新尝试获取数据？`)) {
+                                    // 可以在这里触发重新获取
+                                    console.log('用户选择重新获取数据');
+                                }
+                            }, 2000);
+                        }
+                    } else {
+                        console.log('✅ 数据完整性检查通过');
+                        updateCacheStatus(
+                            '数据完整性良好', 
+                            `成功获取完整数据 ${actualCount} 条记录 (100%)`, 
+                            'success'
+                        );
+                    }
+                } else {
+                    console.log('❓ 无法获取预期数据总量，跳过完整性检查');
+                }
+                
+            } catch (error) {
+                console.error('数据完整性检查失败:', error);
+            }
+        }
+
+        // 获取预期的数据总量（从统计API或其他方式）
+        async function getExpectedDataCount(startDate, endDate) {
+            try {
+                // 构建统计查询参数
+                const statsParams = {
+                    startDate: startDate,
+                    endDate: endDate,
+                    count_only: true // 只获取数量
+                };
+                
+                console.log('📊 获取数据总量统计...');
+                
+                // 尝试调用统计API
+                const stats = await fetchStatsFromAPI(statsParams);
+                
+                if (stats && stats.total_records) {
+                    console.log(`📈 统计API返回总数: ${stats.total_records}`);
+                    return stats.total_records;
+                }
+                
+                // 如果统计API不可用，返回0（跳过检查）
+                console.log('📊 统计API未返回有效数据，跳过完整性检查');
+                return 0;
+                
+            } catch (error) {
+                console.warn('获取预期数据总量失败:', error);
+                return 0; // 返回0表示无法进行完整性检查
+            }
+        }
+
+        // 分页获取完整数据函数
+        async function fetchAllDataFromAPI(params = {}) {
+            try {
+                let allData = [];
+                let offset = 0;
+                const pageSize = 1000; // 每页获取1000条
+                let hasMore = true;
+                let totalExpected = null;
+
+                console.log('🔄 开始分页获取完整数据...');
+                updateCacheStatus('分页获取数据', '正在分页获取完整数据，请稍候...', 'loading');
+
+                while (hasMore) {
+                    // 构建分页参数
+                    const pageParams = {
+                        ...params,
+                        offset: offset,
+                        limit: pageSize
+                    };
+
+                    console.log(`📄 获取第 ${Math.floor(offset / pageSize) + 1} 页数据 (${offset + 1}-${offset + pageSize})`);
+                    
+                    const pageData = await fetchDataFromAPI(pageParams);
+                    
+                    if (pageData && pageData.length > 0) {
+                        allData.push(...pageData);
+                        console.log(`✅ 获取到 ${pageData.length} 条记录，累计 ${allData.length} 条`);
+                        
+                        // 更新进度
+                        const progress = totalExpected ? 
+                            Math.min(100, (allData.length / totalExpected) * 100) : 
+                            '未知';
+                        updateCacheStatus('分页获取中', 
+                            `已获取 ${allData.length} 条记录${typeof progress === 'number' ? ` (${progress.toFixed(1)}%)` : ''}`, 
+                            'loading');
+                        
+                        // 如果返回的数据少于pageSize，说明已经是最后一页
+                        if (pageData.length < pageSize) {
+                            hasMore = false;
+                            console.log('📋 已获取所有数据，总计:', allData.length, '条记录');
+                        } else {
+                            offset += pageSize;
+                        }
+                    } else {
+                        hasMore = false;
+                        console.log('📋 没有更多数据');
+                    }
+
+                    // 防止无限循环的安全措施
+                    if (offset > 100000) {
+                        console.warn('⚠️ 数据量过大，已达到安全限制');
+                        hasMore = false;
+                    }
+                }
+
+                console.log(`🎉 分页获取完成！总共获取到 ${allData.length} 条记录`);
+                return allData;
+
+            } catch (error) {
+                console.error('分页获取数据失败:', error);
+                throw error;
+            }
+        }
+
+        // 原始 API 调用函数（单页）
         async function fetchDataFromAPI(params = {}) {
             try {
                 // 清理参数，过滤空值
@@ -823,8 +985,9 @@
                     }
                 }
                 
-                console.log('🔍 API调用参数:', cleanParams);
                 const qs = new URLSearchParams(cleanParams).toString();
+                console.log(`🌐 API调用: /api/records?${qs}`);
+                
                 const response = await fetch(`/api/records?${qs}`);
                 
                 if (!response.ok) {
@@ -916,10 +1079,14 @@
             }
             
             // 更新数据质量信息
-            if (dataQualityInfo && additionalInfo.quality) {
-                dataQualityInfo.textContent = `${additionalInfo.quality}% 完整`;
-            } else if (dataQualityInfo && additionalInfo.recordCount) {
-                dataQualityInfo.textContent = `${additionalInfo.recordCount} 条记录`;
+            if (dataQualityInfo) {
+                if (additionalInfo.quality && additionalInfo.expectedCount) {
+                    dataQualityInfo.textContent = `${additionalInfo.recordCount}/${additionalInfo.expectedCount} (${additionalInfo.quality}%)`;
+                } else if (additionalInfo.quality) {
+                    dataQualityInfo.textContent = `${additionalInfo.quality}% 完整`;
+                } else if (additionalInfo.recordCount) {
+                    dataQualityInfo.textContent = `${additionalInfo.recordCount} 条记录`;
+                }
             }
         }
 
