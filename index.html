@@ -133,19 +133,19 @@
                 </div>
             </div>
 
-            <!-- 缓存管理区域 -->
+            <!-- 数据预载和缓存管理区域 -->
             <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center text-sm text-gray-600">
-                        <i class="fa fa-database mr-2"></i>
-                        <span>数据流向: Postgres → API → IndexedDB缓存 → 页面显示</span>
+                        <i class="fa fa-cloud-download mr-2"></i>
+                        <span>数据流向: <strong>页面自动预载</strong> → Postgres → API → IndexedDB本地缓存 → 图表渲染</span>
                     </div>
                     <div class="flex items-center space-x-2">
                         <button id="cacheStats" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors">
                             <i class="fa fa-info-circle mr-1"></i>缓存信息
                         </button>
-                        <button id="forceRefresh" class="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors">
-                            <i class="fa fa-refresh mr-1"></i>强制刷新
+                        <button id="refreshAllData" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">
+                            <i class="fa fa-cloud-download mr-1"></i>刷新全部数据
                         </button>
                         <button id="clearCache" class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors">
                             <i class="fa fa-trash mr-1"></i>清空缓存
@@ -153,10 +153,17 @@
                     </div>
                 </div>
                 
+                <!-- 预载进度显示 -->
+                <div id="preloadInfo" class="mt-3 pt-3 border-t border-gray-300 hidden">
+                    <div class="text-sm text-gray-600">
+                        预载状态将在这里显示...
+                    </div>
+                </div>
+                
                 <!-- 调试信息区域 -->
                 <div id="debugInfo" class="mt-3 pt-3 border-t border-gray-300 hidden">
                     <div class="text-xs text-gray-500">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <div>
                                 <strong>最后查询:</strong>
                                 <div id="lastQueryInfo">暂无</div>
@@ -166,7 +173,11 @@
                                 <div id="cacheStatusInfo">未知</div>
                             </div>
                             <div>
-                                <strong>数据质量:</strong>
+                                <strong>数据来源:</strong>
+                                <div id="dataSourceInfo">本地缓存</div>
+                            </div>
+                            <div>
+                                <strong>数据量:</strong>
                                 <div id="dataQualityInfo">暂无</div>
                             </div>
                         </div>
@@ -437,14 +448,16 @@
     </div>
 
     <script>
-        // IndexedDB 缓存管理器
+        // 重构后的 IndexedDB 缓存管理器 - 支持全数据预载
         class CacheManager {
             constructor() {
                 this.dbName = 'SatelliteDataCache';
-                this.dbVersion = 1;
+                this.dbVersion = 2; // 升级版本以支持新的存储结构
                 this.storeName = 'dataCache';
+                this.allDataStoreName = 'allDataCache'; // 新增：存储全部数据的存储空间
+                this.metaStoreName = 'metaData'; // 新增：存储元数据的存储空间
                 this.db = null;
-                this.cacheExpiry = 30 * 60 * 1000; // 30分钟缓存过期时间
+                this.cacheExpiry = 24 * 60 * 60 * 1000; // 24小时缓存过期时间（全数据缓存更长）
             }
 
             async init() {
@@ -465,12 +478,29 @@
                     request.onupgradeneeded = (event) => {
                         const db = event.target.result;
                         
-                        // 创建对象存储
+                        // 创建对象存储 - 老的分页缓存存储（保留）
                         if (!db.objectStoreNames.contains(this.storeName)) {
                             const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
                             store.createIndex('timestamp', 'timestamp', { unique: false });
                             store.createIndex('cacheKey', 'cacheKey', { unique: false });
                             console.log('📦 创建 IndexedDB 缓存存储');
+                        }
+                        
+                        // 新增：全数据存储空间
+                        if (!db.objectStoreNames.contains(this.allDataStoreName)) {
+                            const allDataStore = db.createObjectStore(this.allDataStoreName, { keyPath: 'id' });
+                            allDataStore.createIndex('start_time', 'start_time', { unique: false });
+                            allDataStore.createIndex('task_result', 'task_result', { unique: false });
+                            allDataStore.createIndex('customer', 'customer', { unique: false });
+                            allDataStore.createIndex('satellite_name', 'satellite_name', { unique: false });
+                            allDataStore.createIndex('station_name', 'station_name', { unique: false });
+                            console.log('📦 创建全数据存储空间');
+                        }
+                        
+                        // 新增：元数据存储空间
+                        if (!db.objectStoreNames.contains(this.metaStoreName)) {
+                            const metaStore = db.createObjectStore(this.metaStoreName, { keyPath: 'key' });
+                            console.log('📦 创建元数据存储空间');
                         }
                     };
                 });
@@ -629,24 +659,234 @@
                 });
             }
 
+            // 存储所有数据到本地缓存
+            async storeAllData(allData) {
+                if (!this.db) await this.init();
+                
+                return new Promise(async (resolve, reject) => {
+                    const transaction = this.db.transaction([this.allDataStoreName, this.metaStoreName], 'readwrite');
+                    const allDataStore = transaction.objectStore(this.allDataStoreName);
+                    const metaStore = transaction.objectStore(this.metaStoreName);
+                    
+                    try {
+                        // 清空现有数据
+                        await new Promise((res) => {
+                            const clearReq = allDataStore.clear();
+                            clearReq.onsuccess = () => res();
+                            clearReq.onerror = () => res();
+                        });
+                        
+                        // 批量存储数据
+                        console.log(`💾 开始存储 ${allData.length} 条数据到本地缓存...`);
+                        let storedCount = 0;
+                        
+                        for (const record of allData) {
+                            // 统一数据格式
+                            const standardRecord = {
+                                id: record.plan_id || record['计划ID'] || record.id || `record_${storedCount}`,
+                                start_time: record.start_time || record['开始时间'],
+                                task_result: record.task_result || record['任务结果状态'],
+                                task_type: record.task_type || record['任务类型'],
+                                customer: record.customer || record['所属客户'],
+                                satellite_name: record.satellite_name || record['卫星名称'],
+                                station_name: record.station_name || record['测站名称'],
+                                station_id: record.station_id || record['测站ID'],
+                                // 保留原始数据
+                                ...record
+                            };
+                            
+                            // 添加时间戳用于快速查询
+                            if (standardRecord.start_time) {
+                                const timeValue = typeof standardRecord.start_time === 'string' ? 
+                                    new Date(standardRecord.start_time.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim()) : 
+                                    new Date(standardRecord.start_time);
+                                standardRecord.timestamp = isNaN(timeValue.getTime()) ? 0 : timeValue.getTime();
+                            }
+                            
+                            allDataStore.put(standardRecord);
+                            storedCount++;
+                            
+                            // 每1000条记录显示进度
+                            if (storedCount % 1000 === 0) {
+                                console.log(`📦 已存储 ${storedCount}/${allData.length} 条记录`);
+                            }
+                        }
+                        
+                        // 存储元数据
+                        const metaData = {
+                            key: 'allDataMeta',
+                            totalCount: allData.length,
+                            lastUpdated: Date.now(),
+                            dataVersion: 1
+                        };
+                        metaStore.put(metaData);
+                        
+                        transaction.oncomplete = () => {
+                            console.log(`✅ 全数据缓存完成! 共存储 ${storedCount} 条记录`);
+                            resolve(storedCount);
+                        };
+                        
+                        transaction.onerror = () => {
+                            console.error('❌ 全数据缓存失败:', transaction.error);
+                            reject(transaction.error);
+                        };
+                        
+                    } catch (error) {
+                        console.error('❌ 存储全数据时出错:', error);
+                        reject(error);
+                    }
+                });
+            }
+
+            // 从本地缓存查询数据（支持时间范围筛选）
+            async queryAllData(filters = {}) {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.allDataStoreName], 'readonly');
+                    const store = transaction.objectStore(this.allDataStoreName);
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        let results = request.result || [];
+                        console.log(`📋 从本地缓存查询到 ${results.length} 条原始数据`);
+                        
+                        // 应用筛选条件
+                        if (filters.startDate || filters.endDate || filters.customer || filters.satellite_name || filters.station_name || filters.task_result) {
+                            results = this.applyFilters(results, filters);
+                            console.log(`🔍 应用筛选条件后剩余 ${results.length} 条数据`);
+                        }
+                        
+                        resolve(results);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 查询本地缓存失败:', request.error);
+                        resolve([]);
+                    };
+                });
+            }
+
+            // 应用筛选条件
+            applyFilters(data, filters) {
+                return data.filter(record => {
+                    // 时间范围筛选
+                    if (filters.startDate || filters.endDate) {
+                        const recordTime = record.timestamp || 0;
+                        if (recordTime === 0) return false;
+                        
+                        if (filters.startDate) {
+                            const startTime = new Date(filters.startDate).getTime();
+                            if (recordTime < startTime) return false;
+                        }
+                        
+                        if (filters.endDate) {
+                            const endTime = new Date(filters.endDate).getTime();
+                            if (recordTime > endTime) return false;
+                        }
+                    }
+                    
+                    // 其他筛选条件
+                    if (filters.customer && record.customer !== filters.customer) return false;
+                    if (filters.satellite_name && record.satellite_name !== filters.satellite_name) return false;
+                    if (filters.station_name && record.station_name !== filters.station_name) return false;
+                    if (filters.task_result && record.task_result !== filters.task_result) return false;
+                    
+                    return true;
+                });
+            }
+
+            // 检查全数据缓存是否存在且有效
+            async checkAllDataCache() {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.metaStoreName], 'readonly');
+                    const store = transaction.objectStore(this.metaStoreName);
+                    const request = store.get('allDataMeta');
+
+                    request.onsuccess = () => {
+                        const meta = request.result;
+                        
+                        if (!meta) {
+                            console.log('🔍 全数据缓存不存在');
+                            resolve(null);
+                            return;
+                        }
+                        
+                        // 检查是否过期（24小时）
+                        const now = Date.now();
+                        if (now - meta.lastUpdated > this.cacheExpiry) {
+                            console.log('⏰ 全数据缓存已过期');
+                            resolve(null);
+                            return;
+                        }
+                        
+                        console.log(`✅ 全数据缓存有效，包含 ${meta.totalCount} 条记录`);
+                        resolve(meta);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 检查全数据缓存失败:', request.error);
+                        resolve(null);
+                    };
+                });
+            }
+
+            // 清空全数据缓存
+            async clearAllDataCache() {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.allDataStoreName, this.metaStoreName], 'readwrite');
+                    const allDataStore = transaction.objectStore(this.allDataStoreName);
+                    const metaStore = transaction.objectStore(this.metaStoreName);
+                    
+                    allDataStore.clear();
+                    metaStore.delete('allDataMeta');
+                    
+                    transaction.oncomplete = () => {
+                        console.log('🧹 全数据缓存已清空');
+                        resolve();
+                    };
+                    
+                    transaction.onerror = () => {
+                        console.error('❌ 清空全数据缓存失败:', transaction.error);
+                        resolve();
+                    };
+                });
+            }
+
             // 获取缓存统计信息
             async getCacheStats() {
                 if (!this.db) await this.init();
                 
                 return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.storeName], 'readonly');
+                    const transaction = this.db.transaction([this.storeName, this.allDataStoreName, this.metaStoreName], 'readonly');
                     const store = transaction.objectStore(this.storeName);
-                    const request = store.count();
-
-                    request.onsuccess = () => {
-                        const count = request.result;
-                        console.log(`📊 当前缓存数量: ${count}`);
-                        resolve({ count });
-                    };
-
-                    request.onerror = () => {
-                        resolve({ count: 0 });
-                    };
+                    const allDataStore = transaction.objectStore(this.allDataStoreName);
+                    const metaStore = transaction.objectStore(this.metaStoreName);
+                    
+                    const requests = [
+                        store.count(),
+                        allDataStore.count(),
+                        metaStore.get('allDataMeta')
+                    ];
+                    
+                    Promise.all(requests.map(req => new Promise(res => {
+                        req.onsuccess = () => res(req.result);
+                        req.onerror = () => res(0);
+                    }))).then(([cacheCount, allDataCount, meta]) => {
+                        const stats = {
+                            cacheCount,
+                            allDataCount,
+                            lastUpdated: meta ? new Date(meta.lastUpdated).toLocaleString() : null,
+                            totalInCache: meta ? meta.totalCount : 0
+                        };
+                        
+                        console.log(`📊 缓存统计: 分页缓存 ${cacheCount} 项, 全数据缓存 ${allDataCount} 条`);
+                        resolve(stats);
+                    });
                 });
             }
         }
@@ -654,133 +894,204 @@
         // 全局缓存管理器实例
         const cacheManager = new CacheManager();
 
-        // 带智能验证的缓存数据获取函数
-        async function fetchDataWithCache(startDate, endDate, groupType = 'daily', forceRefresh = false) {
-            try {
-                // 规范化日期格式，确保API调用的一致性
-                let normalizedStartDate = null;
-                let normalizedEndDate = null;
+        // 数据预载管理器
+        class DataPreloader {
+            constructor() {
+                this.isPreloading = false;
+                this.preloadProgress = 0;
+            }
+
+            // 自动预载所有数据
+            async autoPreloadAllData() {
+                try {
+                    console.log('🚀 开始自动预载所有数据...');
+                    this.isPreloading = true;
+                    this.updatePreloadStatus('检查本地缓存', '正在检查本地缓存是否有效...', 'loading');
+
+                    // 检查本地缓存是否存在且有效
+                    const cacheMetadata = await cacheManager.checkAllDataCache();
+                    
+                    if (cacheMetadata) {
+                        console.log('✅ 本地缓存有效，跳过预载');
+                        this.updatePreloadStatus('缓存有效', `本地缓存有效，包含 ${cacheMetadata.totalCount} 条记录，最后更新：${new Date(cacheMetadata.lastUpdated).toLocaleString()}`, 'success');
+                        this.isPreloading = false;
+                        return { fromCache: true, totalCount: cacheMetadata.totalCount };
+                    }
+
+                    // 缓存无效，从API预载所有数据
+                    console.log('🌐 本地缓存无效，开始从API预载数据...');
+                    this.updatePreloadStatus('预载数据', '正在从PostgreSQL数据库获取所有数据...', 'loading');
+
+                    const allData = await this.fetchAllDataFromAPI();
+                    
+                    if (allData && allData.length > 0) {
+                        console.log(`📥 成功获取 ${allData.length} 条数据，开始存储到本地缓存...`);
+                        this.updatePreloadStatus('存储数据', `正在将 ${allData.length} 条数据存储到本地缓存...`, 'loading');
+                        
+                        const storedCount = await cacheManager.storeAllData(allData);
+                        
+                        console.log('✅ 数据预载完成！');
+                        this.updatePreloadStatus('预载完成', `成功预载并缓存 ${storedCount} 条数据`, 'success');
+                        
+                        this.isPreloading = false;
+                        return { fromCache: false, totalCount: storedCount };
+                        
+                    } else {
+                        console.warn('⚠️ 未能获取到数据');
+                        this.updatePreloadStatus('预载失败', '未能从数据库获取到数据', 'warning');
+                        this.isPreloading = false;
+                        return { fromCache: false, totalCount: 0 };
+                    }
+
+                } catch (error) {
+                    console.error('❌ 数据预载失败:', error);
+                    this.updatePreloadStatus('预载失败', `数据预载失败: ${error.message}`, 'error');
+                    this.isPreloading = false;
+                    throw error;
+                }
+            }
+
+            // 从API获取所有数据
+            async fetchAllDataFromAPI() {
+                try {
+                    console.log('📡 开始分页获取所有数据...');
+                    
+                    let allData = [];
+                    let offset = 0;
+                    const pageSize = 2000; // 增大页面大小以提高效率
+                    let hasMore = true;
+                    let currentPage = 1;
+
+                    while (hasMore) {
+                        console.log(`📄 获取第 ${currentPage} 页数据...`);
+                        this.updatePreloadStatus('获取数据', `正在获取第 ${currentPage} 页数据 (已获取 ${allData.length} 条)...`, 'loading');
+
+                        // 获取一页数据
+                        const pageData = await fetchDataFromAPI({
+                            offset: offset,
+                            limit: pageSize
+                        });
+
+                        if (pageData && pageData.length > 0) {
+                            allData.push(...pageData);
+                            console.log(`✅ 第${currentPage}页获取到 ${pageData.length} 条记录，累计 ${allData.length} 条`);
+
+                            // 如果返回的数据少于pageSize，说明已经是最后一页
+                            if (pageData.length < pageSize) {
+                                hasMore = false;
+                                console.log('📋 已获取所有数据');
+                            } else {
+                                offset += pageSize;
+                                currentPage++;
+                            }
+                        } else {
+                            hasMore = false;
+                            console.log('📋 没有更多数据');
+                        }
+
+                        // 防止无限循环的安全措施
+                        if (allData.length > 200000) {
+                            console.warn('⚠️ 数据量过大，达到安全限制');
+                            hasMore = false;
+                        }
+                    }
+
+                    console.log(`🎉 全数据获取完成！总共 ${allData.length} 条记录`);
+                    return allData;
+
+                } catch (error) {
+                    console.error('❌ 获取全数据失败:', error);
+                    throw error;
+                }
+            }
+
+            // 更新预载状态
+            updatePreloadStatus(title, message, type = 'info') {
+                console.log(`📊 预载状态: ${title} - ${message}`);
                 
+                // 更新页面状态显示
+                updateCacheStatus(title, message, type);
+                
+                // 可以在这里添加更详细的预载进度显示
+                const preloadInfo = document.getElementById('preloadInfo');
+                if (preloadInfo) {
+                    preloadInfo.innerHTML = `
+                        <div class="text-sm ${type === 'loading' ? 'text-blue-600' : type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-gray-600'}">
+                            <strong>${title}:</strong> ${message}
+                        </div>
+                    `;
+                }
+            }
+
+            // 手动刷新数据
+            async refreshAllData() {
+                try {
+                    console.log('🔄 手动刷新所有数据...');
+                    
+                    // 清空现有缓存
+                    await cacheManager.clearAllDataCache();
+                    
+                    // 重新预载数据
+                    return await this.autoPreloadAllData();
+                    
+                } catch (error) {
+                    console.error('❌ 手动刷新数据失败:', error);
+                    throw error;
+                }
+            }
+        }
+
+        // 全局数据预载管理器实例
+        const dataPreloader = new DataPreloader();
+
+        // 重构后的数据获取函数 - 优先使用本地缓存
+        async function fetchDataFromLocalCache(startDate, endDate, additionalFilters = {}) {
+            try {
+                console.log('🔍 从本地缓存查询数据...');
+                updateCacheStatus('查询本地缓存', '正在从本地IndexedDB缓存查询数据...', 'loading');
+                
+                // 构建筛选条件
+                const filters = { ...additionalFilters };
+                
+                // 规范化时间格式
                 if (startDate) {
-                    // 将 YYYY-MM-DD 格式转换为完整的 datetime 格式
-                    normalizedStartDate = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
-                    console.log('📅 规范化开始时间:', startDate, '->', normalizedStartDate);
+                    filters.startDate = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
+                    console.log('📅 筛选开始时间:', filters.startDate);
                 }
                 
                 if (endDate) {
-                    // 将 YYYY-MM-DD 格式转换为完整的 datetime 格式，结束时间设为当天23:59:59
-                    normalizedEndDate = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
-                    console.log('📅 规范化结束时间:', endDate, '->', normalizedEndDate);
+                    filters.endDate = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
+                    console.log('📅 筛选结束时间:', filters.endDate);
                 }
                 
-                // 生成缓存键（使用规范化的时间）
-                const cacheKey = cacheManager.generateCacheKey(normalizedStartDate, normalizedEndDate, groupType);
-                console.log('🔑 缓存键:', cacheKey);
+                console.log('🔍 查询筛选条件:', filters);
                 
-                // 检查是否强制刷新
-                if (forceRefresh) {
-                    console.log('🔄 强制刷新模式，跳过缓存检查');
+                // 从本地缓存查询数据
+                const results = await cacheManager.queryAllData(filters);
+                
+                if (results && results.length > 0) {
+                    console.log(`✅ 本地缓存查询成功: ${results.length} 条记录`);
+                    updateCacheStatus('缓存查询成功', `从本地缓存获取 ${results.length} 条记录`, 'success');
+                    updateDebugInfo('本地缓存查询', 'success', { recordCount: results.length });
+                    
+                    return results;
                 } else {
-                    // 首先检查缓存
-                    const cachedData = await cacheManager.checkCache(cacheKey);
-                    if (cachedData) {
-                        console.log('⚡ 发现缓存数据');
-                        
-                        // 验证缓存数据的完整性
-                        if (normalizedStartDate || normalizedEndDate) {
-                            const validCount = validateTimeRangeData(cachedData, normalizedStartDate, normalizedEndDate);
-                            const cacheQuality = cachedData.length > 0 ? (validCount / cachedData.length) * 100 : 0;
-                            
-                            console.log(`🔍 缓存数据质量检查: ${validCount}/${cachedData.length} (${cacheQuality.toFixed(1)}%)`);
-                            
-                            // 如果缓存数据质量低于95%，则重新获取
-                            if (cacheQuality < 95 && cachedData.length > 0) {
-                                console.warn('⚠️ 缓存数据质量不佳，重新获取数据');
-                                updateCacheStatus('缓存数据不完整', `缓存数据完整性 ${cacheQuality.toFixed(1)}%，重新获取数据`, 'warning');
-                                await cacheManager.deleteCache(cacheKey);
-                            } else {
-                                console.log('✅ 使用高质量缓存数据，跳过API调用');
-                                updateCacheStatus('缓存命中', `使用本地缓存数据 (${cachedData.length} 条记录，完整性 ${cacheQuality.toFixed(1)}%)`, 'success');
-                                updateDebugInfo('缓存命中', 'success', { quality: cacheQuality.toFixed(1), recordCount: cachedData.length });
-                                return cachedData;
-                            }
-                        } else {
-                            // 无时间限制时直接使用缓存
-                            console.log('✅ 使用缓存数据（无时间限制），跳过API调用');
-                            updateCacheStatus('缓存命中', `使用本地缓存数据 (${cachedData.length} 条记录)`, 'success');
-                            return cachedData;
-                        }
-                    }
-                }
-
-                // 缓存未命中，从API获取数据
-                console.log('🌐 缓存未命中，从API获取数据');
-                updateCacheStatus('正在获取数据', '从后端API获取最新数据...', 'loading');
-                
-                // 构建API参数，使用规范化的时间格式
-                const params = {};
-                if (normalizedStartDate) {
-                    // 多种格式支持，确保后端能正确解析
-                    params.startDate = normalizedStartDate;
-                    params.start_time = normalizedStartDate; // 备用字段名
-                    params.dateStart = startDate; // 原始日期格式
-                }
-                if (normalizedEndDate) {
-                    params.endDate = normalizedEndDate;
-                    params.end_time = normalizedEndDate; // 备用字段名
-                    params.dateEnd = endDate; // 原始日期格式
-                }
-                
-                // 添加调试信息
-                console.log('🔍 API调用参数详情:', {
-                    originalParams: { startDate, endDate },
-                    normalizedParams: { normalizedStartDate, normalizedEndDate },
-                    apiParams: params
-                });
-                
-                // 使用分页获取完整数据
-                const apiData = await fetchAllDataFromAPI(params);
-                
-                if (apiData && apiData.length > 0) {
-                    console.log(`✅ API返回数据: ${apiData.length} 条记录`);
-                    
-                    // 验证数据是否真的在时间范围内
-                    if (normalizedStartDate || normalizedEndDate) {
-                        const filteredCount = validateTimeRangeData(apiData, normalizedStartDate, normalizedEndDate);
-                        console.log(`🔍 时间范围验证: API返回 ${apiData.length} 条，其中 ${filteredCount} 条在指定时间范围内`);
-                        
-                        if (filteredCount < apiData.length) {
-                            console.warn('⚠️ 警告: API返回的数据中有部分不在指定时间范围内，可能存在后端筛选问题');
-                        }
-                    }
-                    
-                    // 数据完整性检查和警告
-                    await performDataIntegrityCheck(apiData, startDate, endDate);
-                    
-                    // 将数据存入缓存
-                    await cacheManager.storeCache(cacheKey, apiData);
-                    console.log('💾 数据已存入缓存');
-                    
-                    // 显示成功状态
-                    updateCacheStatus('数据获取成功', `从API获取 ${apiData.length} 条记录并已缓存`, 'success');
-                    updateDebugInfo('API获取成功', 'success', { recordCount: apiData.length });
-                    
-                    return apiData;
-                } else {
-                    console.warn('⚠️ API未返回数据');
-                    updateCacheStatus('无数据', `指定时间范围 ${startDate} 至 ${endDate} 内没有数据`, 'warning');
-                    
-                    // 即使无数据也要缓存这个结果，避免重复API调用
-                    await cacheManager.storeCache(cacheKey, []);
-                    
+                    console.log('⚠️ 本地缓存中没有符合条件的数据');
+                    updateCacheStatus('无匹配数据', '本地缓存中没有符合筛选条件的数据', 'warning');
                     return [];
                 }
                 
             } catch (error) {
-                console.error('获取数据失败:', error);
-                updateCacheStatus('获取失败', `数据获取失败: ${error.message}`, 'error');
+                console.error('❌ 本地缓存查询失败:', error);
+                updateCacheStatus('缓存查询失败', `本地缓存查询失败: ${error.message}`, 'error');
                 return [];
             }
+        }
+
+        // 兼容旧版API - 重定向到本地缓存查询
+        async function fetchDataWithCache(startDate, endDate, groupType = 'daily', forceRefresh = false) {
+            console.log('📍 重定向到本地缓存查询 (兼容旧版API)');
+            return await fetchDataFromLocalCache(startDate, endDate);
         }
 
         // 验证API返回的数据是否在指定时间范围内
@@ -1420,15 +1731,15 @@
 
                 // 缓存管理按钮事件
                 const cacheStatsBtn = document.getElementById('cacheStats');
-                const forceRefreshBtn = document.getElementById('forceRefresh');
+                const refreshAllDataBtn = document.getElementById('refreshAllData');
                 const clearCacheBtn = document.getElementById('clearCache');
                 
                 if (cacheStatsBtn) {
                     cacheStatsBtn.addEventListener('click', () => this.showCacheStats());
                 }
                 
-                if (forceRefreshBtn) {
-                    forceRefreshBtn.addEventListener('click', () => this.forceRefreshCurrentQuery());
+                if (refreshAllDataBtn) {
+                    refreshAllDataBtn.addEventListener('click', () => this.refreshAllData());
                 }
                 
                 if (clearCacheBtn) {
@@ -1480,22 +1791,16 @@
                 try {
                     const stats = await cacheManager.getCacheStats();
                     
-                    // 计算缓存大小估算
-                    let totalSize = 0;
-                    if (stats.count > 0) {
-                        // 粗略估算：每个缓存项平均10KB
-                        totalSize = stats.count * 10;
-                    }
-                    
                     const message = `
                         <div class="text-sm">
                             <div class="mb-2"><strong>缓存统计信息:</strong></div>
                             <div class="space-y-1">
-                                <div>📦 缓存数量: ${stats.count} 个</div>
-                                <div>💾 估算大小: ~${totalSize}KB</div>
-                                <div>⏰ 缓存时效: 30分钟</div>
+                                <div>🗄️ 全数据缓存: ${stats.totalInCache} 条记录</div>
+                                <div>📦 分页缓存: ${stats.cacheCount} 个缓存项</div>
+                                <div>⏰ 最后更新: ${stats.lastUpdated || '未知'}</div>
+                                <div>💾 缓存时效: 24小时</div>
                                 <div class="mt-2 text-xs text-gray-600">
-                                    缓存键格式: data_[开始时间]_[结束时间]_[统计周期]
+                                    新架构：所有数据预载到本地IndexedDB，图表直接使用本地缓存渲染
                                 </div>
                             </div>
                         </div>
@@ -1503,50 +1808,46 @@
                     
                     updateCacheStatus('缓存信息', message, 'info');
                     
+                    // 显示预载信息区域
+                    const preloadInfo = document.getElementById('preloadInfo');
+                    if (preloadInfo) {
+                        preloadInfo.classList.remove('hidden');
+                    }
+                    
                 } catch (error) {
                     console.error('获取缓存统计失败:', error);
                     updateCacheStatus('获取失败', '无法获取缓存统计信息', 'error');
                 }
             }
 
-            // 强制刷新当前查询条件的数据
-            async forceRefreshCurrentQuery() {
+            // 刷新全部数据
+            async refreshAllData() {
                 try {
-                    const startDate = this.startDate.value;
-                    const endDate = this.endDate.value;
-                    const groupType = this.groupBy.value;
+                    const confirmed = confirm('确定要刷新全部数据吗？\n\n这将从PostgreSQL数据库重新获取所有数据并更新本地缓存。\n根据数据量大小，这个过程可能需要几分钟时间。');
+                    if (!confirmed) return;
                     
-                    if (!startDate && !endDate) {
-                        updateCacheStatus('需要时间范围', '请先设置开始时间或结束时间，然后再进行强制刷新', 'warning');
-                        return;
-                    }
+                    updateCacheStatus('开始刷新', '正在刷新全部数据，请稍候...', 'loading');
                     
-                    // 生成当前查询条件的缓存键
-                    const currentCacheKey = cacheManager.generateCacheKey(startDate, endDate, groupType);
+                    // 使用数据预载管理器刷新数据
+                    const result = await dataPreloader.refreshAllData();
                     
-                    // 删除当前缓存
-                    await cacheManager.deleteCache(currentCacheKey);
-                    console.log('🗑️ 已删除当前查询条件的缓存:', currentCacheKey);
-                    
-                    // 重新获取数据
-                    updateCacheStatus('强制刷新中', '正在从数据库重新获取最新数据...', 'loading');
-                    
-                    const data = await fetchDataWithCache(startDate, endDate, groupType, true); // 强制刷新
-                    
-                    if (data && data.length > 0) {
-                        this.data = data;
-                        updateCacheStatus('刷新成功', `已从数据库重新获取 ${data.length} 条记录`, 'success');
+                    if (result.totalCount > 0) {
+                        updateCacheStatus('刷新完成', `成功刷新 ${result.totalCount} 条数据`, 'success');
                         
-                        // 自动重新生成统计图表
-                        await this.generateStatistics();
-                        
+                        // 如果当前有设置筛选条件，自动重新生成图表
+                        if (this.startDate.value || this.endDate.value) {
+                            console.log('🔄 自动重新生成图表...');
+                            setTimeout(() => {
+                                this.generateStatistics();
+                            }, 1000);
+                        }
                     } else {
-                        updateCacheStatus('刷新完成', '指定时间范围内没有数据', 'warning');
+                        updateCacheStatus('刷新失败', '未能获取到数据', 'warning');
                     }
                     
                 } catch (error) {
-                    console.error('强制刷新失败:', error);
-                    updateCacheStatus('刷新失败', `强制刷新时发生错误: ${error.message}`, 'error');
+                    console.error('刷新全部数据失败:', error);
+                    updateCacheStatus('刷新失败', `刷新全部数据时发生错误: ${error.message}`, 'error');
                 }
             }
 
@@ -1571,36 +1872,56 @@
 
             async init() {
                 try {
+                    console.log('🚀 初始化页面，启动数据预载系统...');
                     this.dbLoading.classList.remove('hidden');
                     
-                    // 首次加载时获取所有数据（不应用时间筛选）
-                    console.log('🚀 初始化页面，加载所有数据...');
-                    const apiRecords = await fetchDataFromAPI();
-                    
-                    if (!apiRecords || apiRecords.length === 0) {
-                        this.noDataAlert.classList.remove('hidden');
-                        this.dbLoading.classList.add('hidden');
-                        return;
+                    // 显示预载进度信息
+                    const preloadInfo = document.getElementById('preloadInfo');
+                    if (preloadInfo) {
+                        preloadInfo.classList.remove('hidden');
                     }
-
-                    this.data = apiRecords;
-                    this.noDataAlert.classList.add('hidden');
-                    this.setDefaultDates();
                     
-                    console.log(`✅ 初始化完成，加载了 ${apiRecords.length} 条数据`);
+                    // 自动预载所有数据
+                    const preloadResult = await dataPreloader.autoPreloadAllData();
                     
-                    // 显示缓存系统就绪提示
-                    setTimeout(() => {
+                    if (preloadResult.totalCount > 0) {
+                        console.log(`✅ 数据预载完成，共 ${preloadResult.totalCount} 条记录`);
+                        
+                        // 设置默认日期
+                        this.setDefaultDates();
+                        
+                        // 从本地缓存获取默认数据以初始化页面
+                        const defaultData = await fetchDataFromLocalCache();
+                        if (defaultData && defaultData.length > 0) {
+                            this.data = defaultData;
+                            console.log(`📊 初始化显示数据: ${defaultData.length} 条记录`);
+                        }
+                        
+                        this.noDataAlert.classList.add('hidden');
+                        
+                        // 显示系统就绪提示
+                        setTimeout(() => {
+                            updateCacheStatus(
+                                '系统就绪', 
+                                `数据预载完成，本地缓存包含 ${preloadResult.totalCount} 条记录。图表将使用本地缓存数据快速渲染。`, 
+                                'success'
+                            );
+                        }, 2000);
+                        
+                    } else {
+                        console.warn('⚠️ 数据预载失败，没有获取到数据');
+                        this.noDataAlert.classList.remove('hidden');
                         updateCacheStatus(
-                            '缓存系统就绪', 
-                            '数据已加载，缓存系统已启用。相同查询条件将优先使用本地缓存数据。', 
-                            'success'
+                            '预载失败', 
+                            '未能从数据库获取数据，请检查网络连接或联系管理员', 
+                            'error'
                         );
-                    }, 1000);
+                    }
 
                 } catch (error) {
                     console.error('初始化失败:', error);
-                    showError('初始化失败: ' + (error.message || error));
+                    this.noDataAlert.classList.remove('hidden');
+                    updateCacheStatus('初始化失败', `系统初始化失败: ${error.message}`, 'error');
                 } finally {
                     this.dbLoading.classList.add('hidden');
                 }
@@ -1658,7 +1979,7 @@
 
             async applyTimeFilter() {
                 try {
-                    console.log('🚀 开始应用时间筛选 (使用缓存系统)');
+                    console.log('🚀 开始应用时间筛选 (使用本地缓存)');
                     
                     // 获取当前筛选条件
                     const startDate = this.startDate.value;
@@ -1667,24 +1988,31 @@
                     
                     console.log('📋 筛选条件:', { startDate, endDate, groupType });
                     
-                    // 使用缓存系统获取数据 (Postgres → API → IndexedDB → 页面)
-                    const data = await fetchDataWithCache(startDate, endDate, groupType);
+                    // 直接从本地缓存查询数据
+                    const data = await fetchDataFromLocalCache(startDate, endDate);
                     
                     if (data && data.length > 0) {
-                        console.log(`✅ 获取数据成功: ${data.length} 条记录`);
+                        console.log(`✅ 本地缓存查询成功: ${data.length} 条记录`);
                         this.data = data;
                         
-                        // 更新缓存键状态
-                        this.lastCacheKey = cacheManager.generateCacheKey(startDate, endDate, groupType);
+                        // 更新调试信息
+                        updateDebugInfo('本地缓存筛选', 'success', { 
+                            recordCount: data.length,
+                            source: '本地IndexedDB缓存' 
+                        });
                         
                     } else {
-                        console.log('⚠️ 未获取到数据');
+                        console.log('⚠️ 本地缓存中未找到符合条件的数据');
                         this.data = [];
+                        updateDebugInfo('无匹配数据', 'warning', { 
+                            recordCount: 0,
+                            source: '本地IndexedDB缓存' 
+                        });
                     }
                     
                 } catch (error) {
-                    console.error('应用时间筛选失败:', error);
-                    updateCacheStatus('筛选失败', `时间筛选失败: ${error.message}`, 'error');
+                    console.error('本地缓存筛选失败:', error);
+                    updateCacheStatus('筛选失败', `本地缓存筛选失败: ${error.message}`, 'error');
                     // 保持现有数据不变
                 }
             }
