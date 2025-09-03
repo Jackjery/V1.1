@@ -1616,6 +1616,24 @@
                 
                 console.log(`🚀 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
                 console.log(`🔧 当前周期配置:`, this.cycleEngine.config);
+                console.log(`📊 输入数据总数: ${this.data.length} 条`);
+
+                // 检查数据唯一性
+                const allPlanIds = new Set();
+                const planIdCounts = new Map();
+                this.data.forEach(item => {
+                    const planId = item[planIdField];
+                    allPlanIds.add(planId);
+                    planIdCounts.set(planId, (planIdCounts.get(planId) || 0) + 1);
+                });
+                console.log(`🔍 数据中唯一计划ID数: ${allPlanIds.size} 个`);
+                
+                // 检查重复的计划ID
+                const duplicatePlanIds = Array.from(planIdCounts.entries()).filter(([id, count]) => count > 1);
+                if (duplicatePlanIds.length > 0) {
+                    console.log(`⚠️ 发现重复的计划ID: ${duplicatePlanIds.length} 个`);
+                    console.log(`📝 重复示例:`, duplicatePlanIds.slice(0, 5));
+                }
 
                 let processedCount = 0;
                 let filteredByTimeCount = 0;
@@ -1672,9 +1690,19 @@
                         }
 
                         const group = groups[groupInfo.key];
-                        group.planIds.add(item[planIdField]);
+                        const planId = item[planIdField];
+                        const taskResult = item[taskResultField] || '未知';
+                        
+                        // 检查是否重复计划ID
+                        const wasNew = !group.planIds.has(planId);
+                        group.planIds.add(planId);
                         group.count = group.planIds.size;
-                        group.results.push(item[taskResultField] || '未知');
+                        group.results.push(taskResult);
+
+                        // 前5条或每100条输出详细信息，并且总是输出重复的情况
+                        if (processedCount < 5 || processedCount % 100 === 0 || !wasNew) {
+                            console.log(`🔢 分组[${groupInfo.key}] 添加计划ID: ${planId} (${wasNew ? '新' : '重复'}), 当前计数: ${group.count}, 时间: ${date.toLocaleString()}`);
+                        }
 
                         processedCount++;
 
