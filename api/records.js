@@ -19,8 +19,17 @@ export default async function handler(req, res) {
         //     return;
         // }
 
-        // 确保数据库已初始化
-        await initDatabase();
+        // 仅在需要时初始化数据库（大幅减少不必要的查询）
+        try {
+            await initDatabase();
+        } catch (error) {
+            // 如果是配额限制错误，跳过初始化继续执行
+            if (error.message.includes('data transfer quota')) {
+                console.log('数据库配额限制，跳过初始化步骤');
+            } else {
+                throw error;
+            }
+        }
         
         // 解析查询参数
         const {
