@@ -1101,39 +1101,33 @@
 
             getDayGroup(date) {
                 const dayConfig = this.config.day;
-                console.log(`🔧 日周期配置: ${JSON.stringify(dayConfig)}`);
-                
                 const { hours, minutes } = this.parseTimeToHoursMinutes(dayConfig.start);
-                console.log(`🕐 解析时间: ${dayConfig.start} -> ${hours}时${minutes}分`);
-                
+
+                // 创建严格的文件时间对象，不考虑浏览器时区
                 const fileDate = this.createFileDate(date);
-                console.log(`📁 文件时间: ${fileDate.toLocaleString()}`);
-                
-                // 找到文件时间所属的周期起始时间
-                // 算法：找到 <= 文件时间的最近的一个 "X日 YY:YY" 时刻
-                let cycleStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate(), hours, minutes, 0, 0);
-                console.log(`📍 当日起始时间: ${cycleStart.toLocaleString()}`);
-                
-                // 如果文件时间早于当日的起始时间，则向前找到前一日的起始时间
-                if (fileDate < cycleStart) {
-                    console.log(`⬅️ 文件时间早于当日起始时间，向前推一天`);
-                    cycleStart = new Date(cycleStart.getTime() - 24 * 60 * 60 * 1000);
-                } else {
-                    console.log(`➡️ 文件时间在当日起始时间之后或相等，使用当日`);
-                }
-                
-                console.log(`🎯 最终周期起始时间: ${cycleStart.toLocaleString()}`);
-                
-                // 周期结束时间是下一个起始时间（不含）
+
+                // 创建参考日期：与原始日期同一天的周期起始时间点（文件时间）
+                const referenceStart = this.createFileDate(fileDate);
+                referenceStart.setHours(hours, minutes, 0, 0);
+
+                // 计算周期起始时间（文件时间）
+                const cycleStart = fileDate >= referenceStart
+                    ? new Date(referenceStart)
+                    : new Date(referenceStart.getTime() - 24 * 60 * 60 * 1000);
+
+                // 周期结束时间 = 周期起始时间 + 1天（文件时间）
                 const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
-                
+
+                // 周期标签为周期起始时间的日期（文件时间）
                 const groupDate = new Date(cycleStart);
                 const groupKey = this.formatDate(groupDate);
-                
-                console.log(`📅 日周期分组结果 [${dayConfig.start}]: ${fileDate.toLocaleString()} -> ${groupKey}`);
-                console.log(`📊 周期范围: ${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()}`);
-                
-                return { key: groupKey, label: groupKey, rangeStart: cycleStart, rangeEnd: cycleEnd };
+
+                return {
+                    key: groupKey,
+                    label: groupKey,
+                    rangeStart: cycleStart,
+                    rangeEnd: cycleEnd
+                };
             }
 
             getWeekGroup(date) {
@@ -1645,11 +1639,13 @@
                         const timeValue = item[startTimeField];
                         let date;
                         if (timeValue instanceof Date) {
+                            // 已经是日期对象，直接使用文件时间
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            // 使用本地时间解析，避免UTC转换
-                            date = cacheManager.parseLocalTime(timeValue);
+                            // 字符串日期，按文件时间解析
+                            date = new Date(timeValue);
                         } else if (typeof timeValue === 'number') {
+                            // Excel日期数字，转换为文件时间
                             date = new Date((timeValue - 25569) * 86400000);
                         } else {
                             return;
@@ -1667,17 +1663,10 @@
                             return;
                         }
 
-                        // 每100条数据输出一次示例
-                        if (processedCount < 5 || processedCount % 100 === 0) {
-                            console.log(`📝 处理数据[${index}]: 时间=${date.toLocaleString()}, 计划ID=${item[planIdField]}`);
-                        }
-
+                        // 获取周期组信息（基于文件时间）
                         const groupInfo = this.cycleEngine.getGroup(date, groupType);
-
-                        if (processedCount < 5) {
-                            console.log(`📊 分组结果: ${groupInfo.key} (${groupInfo.label})`);
-                        }
-
+                        
+                        // 如果该组不存在，则初始化
                         if (!groups[groupInfo.key]) {
                             groups[groupInfo.key] = {
                                 key: groupInfo.key,
@@ -1688,23 +1677,13 @@
                                 rangeStart: groupInfo.rangeStart,
                                 rangeEnd: groupInfo.rangeEnd
                             };
-                            console.log(`🆕 新建分组: ${groupInfo.key} - ${groupInfo.label}`);
                         }
-
-                        const group = groups[groupInfo.key];
-                        const planId = item[planIdField];
-                        const taskResult = item[taskResultField] || '未知';
                         
-                        // 检查是否重复计划ID
-                        const wasNew = !group.planIds.has(planId);
-                        group.planIds.add(planId);
-                        group.count = group.planIds.size;
-                        group.results.push(taskResult);
-
-                        // 前5条或每100条输出详细信息，并且总是输出重复的情况
-                        if (processedCount < 5 || processedCount % 100 === 0 || !wasNew) {
-                            console.log(`🔢 分组[${groupInfo.key}] 添加计划ID: ${planId} (${wasNew ? '新' : '重复'}), 当前计数: ${group.count}, 时间: ${date.toLocaleString()}`);
-                        }
+                        // 更新组数据
+                        const group = groups[groupInfo.key];
+                        group.planIds.add(item[planIdField]);
+                        group.count = group.planIds.size; // 确保计划ID唯一
+                        group.results.push(item[taskResultField] || '未知');
 
                         processedCount++;
 
@@ -1713,17 +1692,15 @@
                     }
                 });
                 
-                console.log(`📊 分组统计完成: 处理${processedCount}条, 时间过滤${filteredByTimeCount}条, 生成${Object.keys(groups).length}个分组`);
-                
-                // 输出各分组的计数
-                Object.values(groups).forEach(group => {
-                    console.log(`📈 分组[${group.key}]: ${group.count}个计划ID, 时间范围${group.rangeStart.toLocaleString()} ~ ${group.rangeEnd.toLocaleString()}`);
+                // 转换为数组并按时间排序（文件时间顺序）
+                const statsArray = Object.values(groups).sort((a, b) => {
+                    return a.rangeStart - b.rangeStart;
                 });
-
-                const statsArray = Object.values(groups).sort((a, b) => a.rangeStart - b.rangeStart);
-
+                
+                // 计算每个周期的失败次数和成功率 - 使用计划ID总数作为分母
                 statsArray.forEach(stat => {
                     stat.failureCount = this.taskAnalyzer.countFailures(stat.results);
+                    // 传入计划ID总数作为第二个参数
                     stat.successRate = this.taskAnalyzer.calculateSuccessRate(stat.results, stat.count);
                 });
 
