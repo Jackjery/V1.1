@@ -108,80 +108,14 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                        统计开始日期（文件时间）
-                        <span class="text-xs text-blue-600 ml-2">🔍 按数据库"开始时间"筛选</span>
-                    </label>
-                    <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">统计开始日期（文件时间）</label>
+                    <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md">
                     <p class="text-xs text-gray-500 mt-1">实际从所选日期的周期起始时间开始（基于文件时间）</p>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                        统计结束日期（文件时间）
-                        <span class="text-xs text-blue-600 ml-2">🔍 按数据库"开始时间"筛选</span>
-                    </label>
-                    <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary/30 focus:border-primary">
-                    <p class="text-xs text-gray-500 mt-1">实际到所选日期的周期结束时间截止（基于文件时间）</p>
-                </div>
-            </div>
-            
-            <!-- 时间筛选状态提示 -->
-            <div id="timeFilterStatus" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg hidden">
-                <div class="flex items-center text-blue-800 text-sm">
-                    <i class="fa fa-clock-o mr-2"></i>
-                    <span id="timeFilterStatusText">时间筛选状态</span>
-                </div>
-            </div>
-
-            <!-- 数据预载和缓存管理区域 -->
-            <div class="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center text-sm text-gray-600">
-                        <i class="fa fa-cloud-download mr-2"></i>
-                        <span>数据流向: <strong>页面自动预载</strong> → Postgres → API → IndexedDB本地缓存 → 图表渲染</span>
-                    </div>
-                    <div class="flex items-center space-x-2">
-                        <button id="cacheStats" class="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors">
-                            <i class="fa fa-info-circle mr-1"></i>缓存信息
-                        </button>
-                        <button id="refreshAllData" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">
-                            <i class="fa fa-cloud-download mr-1"></i>刷新全部数据
-                        </button>
-                        <button id="clearCache" class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors">
-                            <i class="fa fa-trash mr-1"></i>清空缓存
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- 预载进度显示 -->
-                <div id="preloadInfo" class="mt-3 pt-3 border-t border-gray-300 hidden">
-                    <div class="text-sm text-gray-600">
-                        预载状态将在这里显示...
-                    </div>
-                </div>
-                
-                <!-- 调试信息区域 -->
-                <div id="debugInfo" class="mt-3 pt-3 border-t border-gray-300 hidden">
-                    <div class="text-xs text-gray-500">
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div>
-                                <strong>最后查询:</strong>
-                                <div id="lastQueryInfo">暂无</div>
-                            </div>
-                            <div>
-                                <strong>缓存状态:</strong>
-                                <div id="cacheStatusInfo">未知</div>
-                            </div>
-                            <div>
-                                <strong>数据来源:</strong>
-                                <div id="dataSourceInfo">本地缓存</div>
-                            </div>
-                            <div>
-                                <strong>数据量:</strong>
-                                <div id="dataQualityInfo">暂无</div>
-                            </div>
-                        </div>
-                    </div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">统计结束日期（文件时间）</label>
+                    <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md">
+                    <p class="text-xs text-gray-500 mt-1">实际到所选日期的周期起始时间结束（基于文件时间）</p>
                 </div>
             </div>
 
@@ -448,16 +382,18 @@
     </div>
 
     <script>
-        // 重构后的 IndexedDB 缓存管理器 - 支持全数据预载
+        // ==================== 数据缓存和预载系统 ====================
+        
+        // IndexedDB缓存管理器
         class CacheManager {
             constructor() {
                 this.dbName = 'SatelliteDataCache';
-                this.dbVersion = 2; // 升级版本以支持新的存储结构
-                this.storeName = 'dataCache';
-                this.allDataStoreName = 'allDataCache'; // 新增：存储全部数据的存储空间
-                this.metaStoreName = 'metaData'; // 新增：存储元数据的存储空间
+                this.dbVersion = 3;
+                this.allDataStoreName = 'allDataCache';
+                this.metaStoreName = 'metaData';
                 this.db = null;
-                this.cacheExpiry = 24 * 60 * 60 * 1000; // 24小时缓存过期时间（全数据缓存更长）
+                // 移除缓存过期时间，始终使用本地缓存
+                this.cacheExpiry = Infinity; 
             }
 
             async init() {
@@ -465,196 +401,33 @@
                     const request = indexedDB.open(this.dbName, this.dbVersion);
 
                     request.onerror = () => {
-                        console.error('IndexedDB 打开失败:', request.error);
+                        console.error('❌ IndexedDB初始化失败:', request.error);
                         reject(request.error);
                     };
 
                     request.onsuccess = () => {
                         this.db = request.result;
-                        console.log('✅ IndexedDB 缓存系统初始化成功');
-                        resolve();
+                        console.log('✅ IndexedDB初始化成功');
+                        resolve(this.db);
                     };
 
                     request.onupgradeneeded = (event) => {
-                        const db = event.target.result;
-                        
-                        // 创建对象存储 - 老的分页缓存存储（保留）
-                        if (!db.objectStoreNames.contains(this.storeName)) {
-                            const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
-                            store.createIndex('timestamp', 'timestamp', { unique: false });
-                            store.createIndex('cacheKey', 'cacheKey', { unique: false });
-                            console.log('📦 创建 IndexedDB 缓存存储');
-                        }
-                        
-                        // 新增：全数据存储空间
-                        if (!db.objectStoreNames.contains(this.allDataStoreName)) {
-                            const allDataStore = db.createObjectStore(this.allDataStoreName, { keyPath: 'id' });
+                        this.db = event.target.result;
+                        console.log('🔧 升级IndexedDB结构...');
+
+                        // 全数据存储空间
+                        if (!this.db.objectStoreNames.contains(this.allDataStoreName)) {
+                            const allDataStore = this.db.createObjectStore(this.allDataStoreName, { keyPath: 'id' });
+                            allDataStore.createIndex('timestamp', 'timestamp', { unique: false });
                             allDataStore.createIndex('start_time', 'start_time', { unique: false });
-                            allDataStore.createIndex('task_result', 'task_result', { unique: false });
-                            allDataStore.createIndex('customer', 'customer', { unique: false });
-                            allDataStore.createIndex('satellite_name', 'satellite_name', { unique: false });
-                            allDataStore.createIndex('station_name', 'station_name', { unique: false });
                             console.log('📦 创建全数据存储空间');
                         }
-                        
-                        // 新增：元数据存储空间
-                        if (!db.objectStoreNames.contains(this.metaStoreName)) {
-                            const metaStore = db.createObjectStore(this.metaStoreName, { keyPath: 'key' });
+
+                        // 元数据存储空间
+                        if (!this.db.objectStoreNames.contains(this.metaStoreName)) {
+                            const metaStore = this.db.createObjectStore(this.metaStoreName, { keyPath: 'key' });
                             console.log('📦 创建元数据存储空间');
                         }
-                    };
-                });
-            }
-
-            // 生成缓存键
-            generateCacheKey(startDate, endDate, groupType = 'daily') {
-                const start = startDate || 'none';
-                const end = endDate || 'none'; 
-                return `data_${start}_${end}_${groupType}`;
-            }
-
-            // 检查缓存是否存在且有效
-            async checkCache(cacheKey) {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve, reject) => {
-                    const transaction = this.db.transaction([this.storeName], 'readonly');
-                    const store = transaction.objectStore(this.storeName);
-                    const request = store.get(cacheKey);
-
-                    request.onsuccess = () => {
-                        const result = request.result;
-                        
-                        if (!result) {
-                            console.log('🔍 缓存未命中:', cacheKey);
-                            resolve(null);
-                            return;
-                        }
-
-                        // 检查缓存是否过期
-                        const now = Date.now();
-                        if (now - result.timestamp > this.cacheExpiry) {
-                            console.log('⏰ 缓存已过期:', cacheKey);
-                            this.deleteCache(cacheKey); // 异步删除过期缓存
-                            resolve(null);
-                            return;
-                        }
-
-                        console.log('✅ 缓存命中:', cacheKey, `数据量: ${result.data?.length || 0}`);
-                        resolve(result.data);
-                    };
-
-                    request.onerror = () => {
-                        console.error('缓存检查失败:', request.error);
-                        resolve(null);
-                    };
-                });
-            }
-
-            // 存储数据到缓存
-            async storeCache(cacheKey, data) {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve, reject) => {
-                    const transaction = this.db.transaction([this.storeName], 'readwrite');
-                    const store = transaction.objectStore(this.storeName);
-                    
-                    const cacheData = {
-                        id: cacheKey,
-                        cacheKey: cacheKey,
-                        data: data,
-                        timestamp: Date.now()
-                    };
-
-                    const request = store.put(cacheData);
-
-                    request.onsuccess = () => {
-                        console.log('💾 数据已缓存:', cacheKey, `数据量: ${data?.length || 0}`);
-                        resolve();
-                    };
-
-                    request.onerror = () => {
-                        console.error('缓存存储失败:', request.error);
-                        reject(request.error);
-                    };
-                });
-            }
-
-            // 删除指定缓存
-            async deleteCache(cacheKey) {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.storeName], 'readwrite');
-                    const store = transaction.objectStore(this.storeName);
-                    const request = store.delete(cacheKey);
-
-                    request.onsuccess = () => {
-                        console.log('🗑️ 缓存已删除:', cacheKey);
-                        resolve();
-                    };
-
-                    request.onerror = () => {
-                        console.error('缓存删除失败:', request.error);
-                        resolve();
-                    };
-                });
-            }
-
-            // 清除所有缓存
-            async clearAllCache() {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.storeName], 'readwrite');
-                    const store = transaction.objectStore(this.storeName);
-                    const request = store.clear();
-
-                    request.onsuccess = () => {
-                        console.log('🧹 所有缓存已清除');
-                        resolve();
-                    };
-
-                    request.onerror = () => {
-                        console.error('清除缓存失败:', request.error);
-                        resolve();
-                    };
-                });
-            }
-
-            // 清除过期缓存
-            async cleanExpiredCache() {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.storeName], 'readwrite');
-                    const store = transaction.objectStore(this.storeName);
-                    const index = store.index('timestamp');
-                    const request = index.openCursor();
-                    
-                    const now = Date.now();
-                    let deletedCount = 0;
-
-                    request.onsuccess = (event) => {
-                        const cursor = event.target.result;
-                        if (cursor) {
-                            const record = cursor.value;
-                            if (now - record.timestamp > this.cacheExpiry) {
-                                cursor.delete();
-                                deletedCount++;
-                            }
-                            cursor.continue();
-                        } else {
-                            if (deletedCount > 0) {
-                                console.log(`🧹 清理了 ${deletedCount} 个过期缓存`);
-                            }
-                            resolve();
-                        }
-                    };
-
-                    request.onerror = () => {
-                        console.error('清理过期缓存失败:', request.error);
-                        resolve();
                     };
                 });
             }
@@ -676,12 +449,15 @@
                             clearReq.onerror = () => res();
                         });
                         
+                        // 按时间升序排序数据
+                        const sortedData = this.sortDataByTime(allData);
+                        
                         // 批量存储数据
-                        console.log(`💾 开始存储 ${allData.length} 条数据到本地缓存...`);
+                        console.log(`💾 开始存储 ${sortedData.length} 条数据到本地缓存（按开始时间升序）...`);
                         let storedCount = 0;
                         
-                        for (const record of allData) {
-                            // 统一数据格式
+                        for (const record of sortedData) {
+                            // 统一数据格式并添加时间戳
                             const standardRecord = {
                                 id: record.plan_id || record['计划ID'] || record.id || `record_${storedCount}`,
                                 start_time: record.start_time || record['开始时间'],
@@ -695,7 +471,7 @@
                                 ...record
                             };
                             
-                            // 添加时间戳用于快速查询
+                            // 添加时间戳用于快速查询和排序
                             if (standardRecord.start_time) {
                                 const timeValue = typeof standardRecord.start_time === 'string' ? 
                                     new Date(standardRecord.start_time.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim()) : 
@@ -706,23 +482,24 @@
                             allDataStore.put(standardRecord);
                             storedCount++;
                             
-                            // 每1000条记录显示进度
-                            if (storedCount % 1000 === 0) {
-                                console.log(`📦 已存储 ${storedCount}/${allData.length} 条记录`);
+                            // 每5000条记录显示进度
+                            if (storedCount % 5000 === 0) {
+                                console.log(`📦 已存储 ${storedCount}/${sortedData.length} 条记录`);
                             }
                         }
                         
                         // 存储元数据
                         const metaData = {
                             key: 'allDataMeta',
-                            totalCount: allData.length,
+                            totalCount: sortedData.length,
                             lastUpdated: Date.now(),
-                            dataVersion: 1
+                            dataVersion: 1,
+                            sortedByTime: true
                         };
                         metaStore.put(metaData);
                         
                         transaction.oncomplete = () => {
-                            console.log(`✅ 全数据缓存完成! 共存储 ${storedCount} 条记录`);
+                            console.log(`✅ 全数据缓存完成! 共存储 ${storedCount} 条记录（按开始时间升序）`);
                             resolve(storedCount);
                         };
                         
@@ -736,360 +513,6 @@
                         reject(error);
                     }
                 });
-            }
-
-            // 从本地缓存查询数据（支持时间范围筛选）
-            async queryAllData(filters = {}) {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.allDataStoreName], 'readonly');
-                    const store = transaction.objectStore(this.allDataStoreName);
-                    const request = store.getAll();
-
-                    request.onsuccess = () => {
-                        let results = request.result || [];
-                        console.log(`📋 从本地缓存查询到 ${results.length} 条原始数据`);
-                        
-                        // 应用筛选条件
-                        if (filters.startDate || filters.endDate || filters.customer || filters.satellite_name || filters.station_name || filters.task_result) {
-                            results = this.applyFilters(results, filters);
-                            console.log(`🔍 应用筛选条件后剩余 ${results.length} 条数据`);
-                        }
-                        
-                        resolve(results);
-                    };
-
-                    request.onerror = () => {
-                        console.error('❌ 查询本地缓存失败:', request.error);
-                        resolve([]);
-                    };
-                });
-            }
-
-            // 应用筛选条件
-            applyFilters(data, filters) {
-                return data.filter(record => {
-                    // 时间范围筛选
-                    if (filters.startDate || filters.endDate) {
-                        const recordTime = record.timestamp || 0;
-                        if (recordTime === 0) return false;
-                        
-                        if (filters.startDate) {
-                            const startTime = new Date(filters.startDate).getTime();
-                            if (recordTime < startTime) return false;
-                        }
-                        
-                        if (filters.endDate) {
-                            const endTime = new Date(filters.endDate).getTime();
-                            if (recordTime > endTime) return false;
-                        }
-                    }
-                    
-                    // 其他筛选条件
-                    if (filters.customer && record.customer !== filters.customer) return false;
-                    if (filters.satellite_name && record.satellite_name !== filters.satellite_name) return false;
-                    if (filters.station_name && record.station_name !== filters.station_name) return false;
-                    if (filters.task_result && record.task_result !== filters.task_result) return false;
-                    
-                    return true;
-                });
-            }
-
-            // 检查全数据缓存是否存在且有效
-            async checkAllDataCache() {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.metaStoreName], 'readonly');
-                    const store = transaction.objectStore(this.metaStoreName);
-                    const request = store.get('allDataMeta');
-
-                    request.onsuccess = () => {
-                        const meta = request.result;
-                        
-                        if (!meta) {
-                            console.log('🔍 全数据缓存不存在');
-                            resolve(null);
-                            return;
-                        }
-                        
-                        // 检查是否过期（24小时）
-                        const now = Date.now();
-                        if (now - meta.lastUpdated > this.cacheExpiry) {
-                            console.log('⏰ 全数据缓存已过期');
-                            resolve(null);
-                            return;
-                        }
-                        
-                        console.log(`✅ 全数据缓存有效，包含 ${meta.totalCount} 条记录`);
-                        resolve(meta);
-                    };
-
-                    request.onerror = () => {
-                        console.error('❌ 检查全数据缓存失败:', request.error);
-                        resolve(null);
-                    };
-                });
-            }
-
-            // 清空全数据缓存
-            async clearAllDataCache() {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.allDataStoreName, this.metaStoreName], 'readwrite');
-                    const allDataStore = transaction.objectStore(this.allDataStoreName);
-                    const metaStore = transaction.objectStore(this.metaStoreName);
-                    
-                    allDataStore.clear();
-                    metaStore.delete('allDataMeta');
-                    
-                    transaction.oncomplete = () => {
-                        console.log('🧹 全数据缓存已清空');
-                        resolve();
-                    };
-                    
-                    transaction.onerror = () => {
-                        console.error('❌ 清空全数据缓存失败:', transaction.error);
-                        resolve();
-                    };
-                });
-            }
-
-            // 获取缓存统计信息
-            async getCacheStats() {
-                if (!this.db) await this.init();
-                
-                return new Promise((resolve) => {
-                    const transaction = this.db.transaction([this.storeName, this.allDataStoreName, this.metaStoreName], 'readonly');
-                    const store = transaction.objectStore(this.storeName);
-                    const allDataStore = transaction.objectStore(this.allDataStoreName);
-                    const metaStore = transaction.objectStore(this.metaStoreName);
-                    
-                    const requests = [
-                        store.count(),
-                        allDataStore.count(),
-                        metaStore.get('allDataMeta')
-                    ];
-                    
-                    Promise.all(requests.map(req => new Promise(res => {
-                        req.onsuccess = () => res(req.result);
-                        req.onerror = () => res(0);
-                    }))).then(([cacheCount, allDataCount, meta]) => {
-                        const stats = {
-                            cacheCount,
-                            allDataCount,
-                            lastUpdated: meta ? new Date(meta.lastUpdated).toLocaleString() : null,
-                            totalInCache: meta ? meta.totalCount : 0
-                        };
-                        
-                        console.log(`📊 缓存统计: 分页缓存 ${cacheCount} 项, 全数据缓存 ${allDataCount} 条`);
-                        resolve(stats);
-                    });
-                });
-            }
-        }
-
-        // 全局缓存管理器实例
-        const cacheManager = new CacheManager();
-
-        // 数据预载管理器
-        class DataPreloader {
-            constructor() {
-                this.isPreloading = false;
-                this.preloadProgress = 0;
-            }
-
-            // 自动预载所有数据
-            async autoPreloadAllData() {
-                try {
-                    console.log('🚀 开始自动预载所有数据...');
-                    this.isPreloading = true;
-                    this.updatePreloadStatus('检查本地缓存', '正在检查本地缓存是否有效...', 'loading');
-
-                    // 检查本地缓存是否存在且有效
-                    const cacheMetadata = await cacheManager.checkAllDataCache();
-                    
-                    if (cacheMetadata) {
-                        console.log('✅ 本地缓存有效，跳过预载');
-                        this.updatePreloadStatus('缓存有效', `本地缓存有效，包含 ${cacheMetadata.totalCount} 条记录，最后更新：${new Date(cacheMetadata.lastUpdated).toLocaleString()}`, 'success');
-                        this.isPreloading = false;
-                        return { fromCache: true, totalCount: cacheMetadata.totalCount };
-                    }
-
-                    // 缓存无效，从API预载所有数据
-                    console.log('🌐 本地缓存无效，开始从API预载数据...');
-                    this.updatePreloadStatus('预载数据', '正在从PostgreSQL数据库获取所有数据...', 'loading');
-
-                    const allData = await this.fetchAllDataFromAPI();
-                    
-                    if (allData && allData.length > 0) {
-                        console.log(`📥 成功获取 ${allData.length} 条数据，开始存储到本地缓存...`);
-                        this.updatePreloadStatus('存储数据', `正在将 ${allData.length} 条数据存储到本地缓存...`, 'loading');
-                        
-                        const storedCount = await cacheManager.storeAllData(allData);
-                        
-                        console.log('✅ 数据预载完成！');
-                        this.updatePreloadStatus('预载完成', `成功预载并缓存 ${storedCount} 条数据`, 'success');
-                        
-                        this.isPreloading = false;
-                        return { fromCache: false, totalCount: storedCount };
-                        
-                    } else {
-                        console.warn('⚠️ 未能获取到数据');
-                        this.updatePreloadStatus('预载失败', '未能从数据库获取到数据', 'warning');
-                        this.isPreloading = false;
-                        return { fromCache: false, totalCount: 0 };
-                    }
-
-                } catch (error) {
-                    console.error('❌ 数据预载失败:', error);
-                    this.updatePreloadStatus('预载失败', `数据预载失败: ${error.message}`, 'error');
-                    this.isPreloading = false;
-                    throw error;
-                }
-            }
-
-            // 从API获取所有数据 - 修复版本
-            async fetchAllDataFromAPI() {
-                try {
-                    console.log('📡 开始分页获取所有数据...');
-                    
-                    let allData = [];
-                    let offset = 0;
-                    const pageSize = 1000; // 使用较小的页面大小确保稳定性
-                    let hasMore = true;
-                    let currentPage = 1;
-                    let consecutiveEmptyPages = 0; // 连续空页计数
-                    const maxEmptyPages = 5; // 增加到5个连续空页才停止
-                    const maxAttempts = 1000; // 最多尝试1000页，支持更大数据量
-
-                    while (hasMore && currentPage <= maxAttempts) {
-                        console.log(`📄 [页面 ${currentPage}] 开始获取数据 (offset: ${offset}, limit: ${pageSize}, 已累计: ${allData.length} 条)...`);
-                        this.updatePreloadStatus('获取数据', 
-                            `正在获取第 ${currentPage} 页数据 (已获取 ${allData.length} 条)...`, 
-                            'loading');
-
-                        // 构建明确的分页参数
-                        const params = {
-                            offset: offset,
-                            limit: pageSize,
-                            // 添加排序参数确保数据一致性
-                            order_by: 'start_time',
-                            sort: 'ASC',
-                            // 强制获取全部数据的参数
-                            fetch_all: true,
-                            no_cache: true,
-                            // 确保不被其他条件限制
-                            ignore_filters: true,
-                            force_pagination: true
-                        };
-
-                        console.log('🔍 API调用参数:', params);
-
-                        // 获取一页数据
-                        const pageData = await this.fetchSinglePageFromAPI(params);
-
-                        if (pageData && pageData.length > 0) {
-                            allData.push(...pageData);
-                            console.log(`✅ [页面 ${currentPage}] 成功获取 ${pageData.length} 条记录，累计总数: ${allData.length} 条`);
-                            
-                            consecutiveEmptyPages = 0; // 重置空页计数
-                            offset += pageSize;
-                            currentPage++;
-                            
-                            // 如果返回的数据少于pageSize，说明可能接近最后一页
-                            if (pageData.length < pageSize) {
-                                console.log(`📋 [页面 ${currentPage-1}] 返回 ${pageData.length} 条数据，小于页面大小 ${pageSize}，继续获取验证是否还有更多数据`);
-                            }
-                            
-                            // 每10页显示一次进度摘要
-                            if (currentPage % 10 === 0) {
-                                console.log(`🔄 分页进度: 已处理 ${currentPage-1} 页，累计获取 ${allData.length} 条记录`);
-                            }
-                        } else {
-                            consecutiveEmptyPages++;
-                            console.log(`⚠️ [页面 ${currentPage}] 空页面，无数据返回。连续空页计数: ${consecutiveEmptyPages}/${maxEmptyPages}`);
-                            
-                            if (consecutiveEmptyPages >= maxEmptyPages) {
-                                hasMore = false;
-                                console.log(`🏁 连续遇到 ${consecutiveEmptyPages} 个空页面，认为数据获取完成。总计: ${allData.length} 条记录`);
-                            } else {
-                                // 继续尝试下一页
-                                offset += pageSize;
-                                currentPage++;
-                                console.log(`🔄 继续尝试下一页 (${currentPage})，offset: ${offset}`);
-                            }
-                        }
-
-                        // 数据量检查 - 提高限制以支持20万+记录
-                        if (allData.length > 1000000) { // 提高到100万记录限制
-                            console.warn('⚠️ 数据量达到安全限制（100万条），停止获取');
-                            hasMore = false;
-                        }
-
-                        // 添加延迟以避免过快请求
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-
-                    // 分页获取结束，显示最终统计
-                    if (currentPage > maxAttempts) {
-                        console.warn(`⚠️ 达到最大分页尝试次数 (${maxAttempts})，停止获取`);
-                    }
-                    
-                    console.log(`🎉 全数据获取完成！`);
-                    console.log(`📊 获取统计: 总页数 ${currentPage-1}，总记录数 ${allData.length}`);
-                    console.log(`🔍 数据完整性: ${allData.length >= 200000 ? '✅ 数据量符合预期(20万+)' : '⚠️ 数据量少于预期'}`);
-                    
-                    // 按时间升序排列
-                    console.log('📊 开始对数据按时间升序排列...');
-                    allData = this.sortDataByTime(allData);
-                    console.log(`✅ 数据排序完成，共 ${allData.length} 条记录按时间升序排列`);
-                    
-                    return allData;
-
-                } catch (error) {
-                    console.error('❌ 获取全数据失败:', error);
-                    throw error;
-                }
-            }
-
-            // 单页API调用函数
-            async fetchSinglePageFromAPI(params) {
-                try {
-                    // 清理参数，过滤空值
-                    const cleanParams = {};
-                    for (const [key, value] of Object.entries(params)) {
-                        if (value !== undefined && value !== null && value !== '') {
-                            cleanParams[key] = value;
-                        }
-                    }
-                    
-                    const qs = new URLSearchParams(cleanParams).toString();
-                    console.log(`🌐 API单页调用: /api/records?${qs}`);
-                    
-                    const response = await fetch(`/api/records?${qs}`);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-
-                    const result = await response.json();
-
-                    if (!result.success) {
-                        throw new Error(result.error || '获取数据失败');
-                    }
-
-                    const records = result.data.records || [];
-                    console.log(`📄 单页API返回: ${records.length} 条记录`);
-                    
-                    return records;
-                    
-                } catch (error) {
-                    console.error('❌ 单页API调用失败:', error);
-                    throw error;
-                }
             }
 
             // 按时间对数据进行升序排列
@@ -1114,12 +537,10 @@
             // 解析各种时间格式为时间戳
             parseTimeToTimestamp(timeValue) {
                 if (typeof timeValue === 'number') {
-                    // 如果已经是时间戳
                     return timeValue > 1000000000000 ? timeValue : timeValue * 1000;
                 }
                 
                 if (typeof timeValue === 'string') {
-                    // 字符串时间
                     const cleanTimeStr = timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
                     const date = new Date(cleanTimeStr);
                     return isNaN(date.getTime()) ? 0 : date.getTime();
@@ -1132,399 +553,333 @@
                 return 0;
             }
 
-            // 更新预载状态
-            updatePreloadStatus(title, message, type = 'info') {
-                console.log(`📊 预载状态: ${title} - ${message}`);
+            // 从本地缓存查询数据（支持时间范围筛选）
+            async queryAllData(filters = {}) {
+                if (!this.db) await this.init();
                 
-                // 更新页面状态显示
-                updateCacheStatus(title, message, type);
-                
-                // 可以在这里添加更详细的预载进度显示
-                const preloadInfo = document.getElementById('preloadInfo');
-                if (preloadInfo) {
-                    preloadInfo.innerHTML = `
-                        <div class="text-sm ${type === 'loading' ? 'text-blue-600' : type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-gray-600'}">
-                            <strong>${title}:</strong> ${message}
-                        </div>
-                    `;
-                }
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.allDataStoreName], 'readonly');
+                    const store = transaction.objectStore(this.allDataStoreName);
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        let results = request.result || [];
+                        
+                        // 应用时间范围过滤
+                        if (filters.startDate || filters.endDate) {
+                            results = results.filter(record => {
+                                const recordTime = record.timestamp || this.parseTimeToTimestamp(record.start_time);
+                                
+                                if (filters.startDate) {
+                                    const startTime = new Date(filters.startDate).getTime();
+                                    if (recordTime < startTime) return false;
+                                }
+                                
+                                if (filters.endDate) {
+                                    const endTime = new Date(filters.endDate).getTime() + 24 * 60 * 60 * 1000 - 1; // 包含整天
+                                    if (recordTime > endTime) return false;
+                                }
+                                
+                                return true;
+                            });
+                        }
+                        
+                        console.log(`🔍 从本地缓存查询到 ${results.length} 条数据`);
+                        resolve(results);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 查询本地缓存失败:', request.error);
+                        resolve([]);
+                    };
+                });
             }
 
-            // 手动刷新数据
-            async refreshAllData() {
+            // 检查全数据缓存是否存在
+            async checkAllDataCache() {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.metaStoreName], 'readonly');
+                    const store = transaction.objectStore(this.metaStoreName);
+                    const request = store.get('allDataMeta');
+
+                    request.onsuccess = () => {
+                        const meta = request.result;
+                        
+                        if (!meta) {
+                            console.log('🔍 本地缓存不存在');
+                            resolve(null);
+                            return;
+                        }
+                        
+                        console.log(`✅ 本地缓存存在，包含 ${meta.totalCount} 条记录，最后更新：${new Date(meta.lastUpdated).toLocaleString()}`);
+                        resolve(meta);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 检查本地缓存失败:', request.error);
+                        resolve(null);
+                    };
+                });
+            }
+
+            // 清空全数据缓存
+            async clearAllDataCache() {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.allDataStoreName, this.metaStoreName], 'readwrite');
+                    const allDataStore = transaction.objectStore(this.allDataStoreName);
+                    const metaStore = transaction.objectStore(this.metaStoreName);
+                    
+                    allDataStore.clear();
+                    metaStore.delete('allDataMeta');
+                    
+                    transaction.oncomplete = () => {
+                        console.log('🧹 本地缓存已清空');
+                        resolve();
+                    };
+                    
+                    transaction.onerror = () => {
+                        console.error('❌ 清空本地缓存失败:', transaction.error);
+                        resolve();
+                    };
+                });
+            }
+        }
+
+        // 数据预载管理器
+        class DataPreloader {
+            constructor() {
+                this.isPreloading = false;
+                this.preloadProgress = 0;
+            }
+
+            // 页面加载时自动预载所有数据
+            async autoPreloadAllData() {
                 try {
-                    console.log('🔄 手动刷新所有数据...');
+                    console.log('🚀 页面加载：开始自动预载全部数据...');
+                    this.isPreloading = true;
+                    this.updatePreloadStatus('正在检查本地缓存...', 'loading');
+
+                    // 总是重新从数据库获取最新数据
+                    console.log('🌐 重新从 Postgres 数据库获取最新数据...');
+                    this.updatePreloadStatus('正在从数据库获取全部数据...', 'loading');
+
+                    const allData = await this.fetchAllDataFromAPI();
                     
-                    // 清空现有缓存
-                    await cacheManager.clearAllDataCache();
-                    
-                    // 重新预载数据
-                    return await this.autoPreloadAllData();
-                    
+                    if (allData && allData.length > 0) {
+                        console.log(`📥 成功获取 ${allData.length} 条数据，开始存储到本地缓存...`);
+                        this.updatePreloadStatus(`正在将 ${allData.length} 条数据存储到本地缓存...`, 'loading');
+                        
+                        const storedCount = await cacheManager.storeAllData(allData);
+                        
+                        console.log('✅ 数据预载完成！');
+                        this.updatePreloadStatus(`✅ 成功预载并缓存 ${storedCount} 条数据，已按开始时间升序排列`, 'success');
+                        
+                        this.isPreloading = false;
+                        return { success: true, totalCount: storedCount };
+                        
+                    } else {
+                        console.warn('⚠️ 未能获取到数据');
+                        this.updatePreloadStatus('⚠️ 数据库中暂无数据', 'warning');
+                        this.isPreloading = false;
+                        return { success: false, totalCount: 0 };
+                    }
+
                 } catch (error) {
-                    console.error('❌ 手动刷新数据失败:', error);
+                    console.error('❌ 数据预载失败:', error);
+                    this.updatePreloadStatus(`❌ 数据预载失败: ${error.message}`, 'error');
+                    this.isPreloading = false;
                     throw error;
                 }
             }
+
+            // 从API获取所有数据（无分页限制）
+            async fetchAllDataFromAPI() {
+                try {
+                    console.log('📡 开始从API获取所有数据（无条数限制）...');
+                    
+                    let allData = [];
+                    let offset = 0;
+                    const pageSize = 5000; // 增大页面大小提高效率
+                    let hasMore = true;
+                    let currentPage = 1;
+                    let consecutiveEmptyPages = 0;
+                    const maxEmptyPages = 10; // 允许更多空页以确保完整获取
+
+                    while (hasMore) {
+                        console.log(`📄 [页面 ${currentPage}] 开始获取数据 (offset: ${offset}, limit: ${pageSize}, 已累计: ${allData.length} 条)...`);
+
+                        // 构建API参数（移除所有限制）
+                        const params = {
+                            offset: offset,
+                            limit: pageSize,
+                            order_by: 'start_time',
+                            sort: 'ASC',
+                            // 确保获取全部数据
+                            no_limit: true,
+                            fetch_all: true,
+                            ignore_filters: true
+                        };
+
+                        console.log('🔍 API调用参数:', params);
+
+                        // 获取一页数据
+                        const pageData = await this.fetchSinglePageFromAPI(params);
+
+                        if (pageData && pageData.length > 0) {
+                            allData.push(...pageData);
+                            console.log(`✅ [页面 ${currentPage}] 成功获取 ${pageData.length} 条记录，累计总数: ${allData.length} 条`);
+                            
+                            consecutiveEmptyPages = 0;
+                            offset += pageSize;
+                            currentPage++;
+                            
+                            // 每10页显示一次进度摘要
+                            if (currentPage % 10 === 0) {
+                                console.log(`🔄 分页进度: 已处理 ${currentPage-1} 页，累计获取 ${allData.length} 条记录`);
+                            }
+                        } else {
+                            consecutiveEmptyPages++;
+                            console.log(`⚠️ [页面 ${currentPage}] 空页面。连续空页计数: ${consecutiveEmptyPages}/${maxEmptyPages}`);
+                            
+                            if (consecutiveEmptyPages >= maxEmptyPages) {
+                                hasMore = false;
+                                console.log(`🏁 连续遇到 ${consecutiveEmptyPages} 个空页面，数据获取完成。总计: ${allData.length} 条记录`);
+                            } else {
+                                offset += pageSize;
+                                currentPage++;
+                            }
+                        }
+
+                        // 添加延迟避免过快请求
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
+
+                    console.log(`🎉 全数据获取完成！`);
+                    console.log(`📊 获取统计: 总页数 ${currentPage-1}，总记录数 ${allData.length}`);
+                    
+                    return allData;
+
+                } catch (error) {
+                    console.error('❌ 获取全数据失败:', error);
+                    throw error;
+                }
+            }
+
+            // 单页API调用函数
+            async fetchSinglePageFromAPI(params) {
+                try {
+                    const cleanParams = {};
+                    for (const [key, value] of Object.entries(params)) {
+                        if (value !== undefined && value !== null && value !== '') {
+                            cleanParams[key] = value;
+                        }
+                    }
+                    
+                    const qs = new URLSearchParams(cleanParams).toString();
+                    const response = await fetch(`/api/records?${qs}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (!result.success) {
+                        throw new Error(result.error || '获取数据失败');
+                    }
+
+                    const records = result.data.records || [];
+                    return records;
+                    
+                } catch (error) {
+                    console.error('❌ 单页API调用失败:', error);
+                    throw error;
+                }
+            }
+
+            // 更新预载状态显示
+            updatePreloadStatus(message, type = 'info') {
+                const dbLoading = document.getElementById('dbLoading');
+                if (dbLoading) {
+                    const span = dbLoading.querySelector('span');
+                    if (span) {
+                        span.textContent = message;
+                    }
+                    
+                    // 根据类型更新样式
+                    dbLoading.className = 'mb-6 p-3 rounded-lg flex items-center';
+                    switch (type) {
+                        case 'loading':
+                            dbLoading.classList.add('bg-primary/10', 'text-primary');
+                            dbLoading.classList.remove('hidden');
+                            break;
+                        case 'success':
+                            dbLoading.classList.add('bg-success/10', 'text-success');
+                            // 3秒后隐藏成功消息
+                            setTimeout(() => dbLoading.classList.add('hidden'), 3000);
+                            break;
+                        case 'warning':
+                            dbLoading.classList.add('bg-warning/10', 'text-warning');
+                            break;
+                        case 'error':
+                            dbLoading.classList.add('bg-danger/10', 'text-danger');
+                            break;
+                        default:
+                            dbLoading.classList.add('bg-primary/10', 'text-primary');
+                            break;
+                    }
+                }
+            }
         }
 
-        // 全局数据预载管理器实例
+        // 全局实例
+        const cacheManager = new CacheManager();
         const dataPreloader = new DataPreloader();
 
-        // 重构后的数据获取函数 - 优先使用本地缓存
-        async function fetchDataFromLocalCache(startDate, endDate, additionalFilters = {}) {
-            try {
-                console.log('🔍 从本地缓存查询数据...');
-                updateCacheStatus('查询本地缓存', '正在从本地IndexedDB缓存查询数据...', 'loading');
-                
-                // 构建筛选条件
-                const filters = { ...additionalFilters };
-                
-                // 规范化时间格式
-                if (startDate) {
-                    filters.startDate = startDate.includes('T') ? startDate : `${startDate}T00:00:00`;
-                    console.log('📅 筛选开始时间:', filters.startDate);
-                }
-                
-                if (endDate) {
-                    filters.endDate = endDate.includes('T') ? endDate : `${endDate}T23:59:59`;
-                    console.log('📅 筛选结束时间:', filters.endDate);
-                }
-                
-                console.log('🔍 查询筛选条件:', filters);
-                
-                // 从本地缓存查询数据
-                const results = await cacheManager.queryAllData(filters);
-                
-                if (results && results.length > 0) {
-                    console.log(`✅ 本地缓存查询成功: ${results.length} 条记录`);
-                    updateCacheStatus('缓存查询成功', `从本地缓存获取 ${results.length} 条记录`, 'success');
-                    updateDebugInfo('本地缓存查询', 'success', { recordCount: results.length });
-                    
-                    return results;
-                } else {
-                    console.log('⚠️ 本地缓存中没有符合条件的数据');
-                    updateCacheStatus('无匹配数据', '本地缓存中没有符合筛选条件的数据', 'warning');
-                    return [];
-                }
-                
-            } catch (error) {
-                console.error('❌ 本地缓存查询失败:', error);
-                updateCacheStatus('缓存查询失败', `本地缓存查询失败: ${error.message}`, 'error');
-                return [];
-            }
-        }
-
-        // 兼容旧版API - 重定向到本地缓存查询
-        async function fetchDataWithCache(startDate, endDate, groupType = 'daily', forceRefresh = false) {
-            console.log('📍 重定向到本地缓存查询 (兼容旧版API)');
-            return await fetchDataFromLocalCache(startDate, endDate);
-        }
-
-        // 验证API返回的数据是否在指定时间范围内
-        function validateTimeRangeData(data, startDateTime, endDateTime) {
-            if (!data || !data.length) return 0;
-            if (!startDateTime && !endDateTime) return data.length;
-            
-            let count = 0;
-            const startTime = startDateTime ? new Date(startDateTime) : null;
-            const endTime = endDateTime ? new Date(endDateTime) : null;
-            
-            data.forEach(item => {
-                // 检查多种可能的时间字段
-                const timeValue = item['开始时间'] || item['start_time'] || item.start_time;
-                if (!timeValue) return;
-                
-                let itemDate;
-                if (typeof timeValue === 'string') {
-                    itemDate = new Date(timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim());
-                } else {
-                    itemDate = new Date(timeValue);
-                }
-                
-                if (isNaN(itemDate.getTime())) return;
-                
-                // 检查时间范围
-                if (startTime && itemDate < startTime) return;
-                if (endTime && itemDate > endTime) return;
-                
-                count++;
-            });
-            
-            return count;
-        }
-
-        // 数据完整性检查函数
-        async function performDataIntegrityCheck(apiData, startDate, endDate) {
-            try {
-                console.log('🔍 开始数据完整性检查...');
-                
-                if (!startDate || !endDate) {
-                    console.log('⏭️ 跳过完整性检查（未设置时间范围）');
-                    return;
-                }
-                
-                // 尝试获取预期的数据总量
-                const expectedCount = await getExpectedDataCount(startDate, endDate);
-                const actualCount = apiData.length;
-                
-                console.log(`📊 数据完整性对比: 预期 ${expectedCount} 条，实际获取 ${actualCount} 条`);
-                
-                if (expectedCount > 0) {
-                    const completeness = (actualCount / expectedCount) * 100;
-                    console.log(`📈 数据完整性: ${completeness.toFixed(1)}%`);
-                    
-                    // 更新调试信息
-                    updateDebugInfo('数据完整性检查', 'info', { 
-                        quality: completeness.toFixed(1),
-                        recordCount: actualCount,
-                        expectedCount: expectedCount
-                    });
-                    
-                    // 如果数据不完整，显示警告
-                    if (completeness < 100) {
-                        const missingCount = expectedCount - actualCount;
-                        console.warn(`⚠️ 数据可能不完整！缺失 ${missingCount} 条记录`);
-                        
-                        updateCacheStatus(
-                            '数据可能不完整', 
-                            `获取了 ${actualCount}/${expectedCount} 条记录 (${completeness.toFixed(1)}%)，可能存在 ${missingCount} 条记录未获取到`, 
-                            'warning'
-                        );
-                        
-                        // 如果完整性低于50%，建议用户检查
-                        if (completeness < 50) {
-                            setTimeout(() => {
-                                if (confirm(`检测到数据不完整！\n\n预期获取: ${expectedCount} 条记录\n实际获取: ${actualCount} 条记录\n完整性: ${completeness.toFixed(1)}%\n\n是否需要重新尝试获取数据？`)) {
-                                    // 可以在这里触发重新获取
-                                    console.log('用户选择重新获取数据');
-                                }
-                            }, 2000);
-                        }
-                    } else {
-                        console.log('✅ 数据完整性检查通过');
-                        updateCacheStatus(
-                            '数据完整性良好', 
-                            `成功获取完整数据 ${actualCount} 条记录 (100%)`, 
-                            'success'
-                        );
-                    }
-                } else {
-                    console.log('❓ 无法获取预期数据总量，跳过完整性检查');
-                }
-                
-            } catch (error) {
-                console.error('数据完整性检查失败:', error);
-            }
-        }
-
-        // 获取预期的数据总量（从统计API或其他方式）
-        async function getExpectedDataCount(startDate, endDate) {
-            try {
-                // 构建统计查询参数
-                const statsParams = {
-                    startDate: startDate,
-                    endDate: endDate,
-                    count_only: true // 只获取数量
-                };
-                
-                console.log('📊 获取数据总量统计...');
-                
-                // 尝试调用统计API
-                const stats = await fetchStatsFromAPI(statsParams);
-                
-                if (stats && stats.total_records) {
-                    console.log(`📈 统计API返回总数: ${stats.total_records}`);
-                    return stats.total_records;
-                }
-                
-                // 如果统计API不可用，返回0（跳过检查）
-                console.log('📊 统计API未返回有效数据，跳过完整性检查');
-                return 0;
-                
-            } catch (error) {
-                console.warn('获取预期数据总量失败:', error);
-                return 0; // 返回0表示无法进行完整性检查
-            }
-        }
-
-        // 分页获取完整数据函数
-        async function fetchAllDataFromAPI(params = {}) {
-            try {
-                let allData = [];
-                let offset = 0;
-                const pageSize = 1000; // 每页获取1000条
-                let hasMore = true;
-                let totalExpected = null;
-
-                console.log('🔄 开始分页获取完整数据...');
-                updateCacheStatus('分页获取数据', '正在分页获取完整数据，请稍候...', 'loading');
-
-                while (hasMore) {
-                    // 构建分页参数
-                    const pageParams = {
-                        ...params,
-                        offset: offset,
-                        limit: pageSize
-                    };
-
-                    console.log(`📄 获取第 ${Math.floor(offset / pageSize) + 1} 页数据 (${offset + 1}-${offset + pageSize})`);
-                    
-                    const pageData = await fetchDataFromAPI(pageParams);
-                    
-                    if (pageData && pageData.length > 0) {
-                        allData.push(...pageData);
-                        console.log(`✅ 获取到 ${pageData.length} 条记录，累计 ${allData.length} 条`);
-                        
-                        // 更新进度
-                        const progress = totalExpected ? 
-                            Math.min(100, (allData.length / totalExpected) * 100) : 
-                            '未知';
-                        updateCacheStatus('分页获取中', 
-                            `已获取 ${allData.length} 条记录${typeof progress === 'number' ? ` (${progress.toFixed(1)}%)` : ''}`, 
-                            'loading');
-                        
-                        // 如果返回的数据少于pageSize，说明已经是最后一页
-                        if (pageData.length < pageSize) {
-                            hasMore = false;
-                            console.log('📋 已获取所有数据，总计:', allData.length, '条记录');
-                        } else {
-                            offset += pageSize;
-                        }
-                    } else {
-                        hasMore = false;
-                        console.log('📋 没有更多数据');
-                    }
-
-                    // 防止无限循环的安全措施
-                    if (offset > 100000) {
-                        console.warn('⚠️ 数据量过大，已达到安全限制');
-                        hasMore = false;
-                    }
-                }
-
-                console.log(`🎉 分页获取完成！总共获取到 ${allData.length} 条记录`);
-                return allData;
-
-            } catch (error) {
-                console.error('分页获取数据失败:', error);
-                throw error;
-            }
-        }
-
-        // 原始 API 调用函数（单页）
+        // ==================== 原有的API函数（改为从缓存获取）====================
+        
+        // 从本地缓存获取数据的通用函数（重构为仅使用本地缓存）
         async function fetchDataFromAPI(params = {}) {
             try {
-                // 清理参数，过滤空值
-                const cleanParams = {};
-                for (const [key, value] of Object.entries(params)) {
-                    if (value !== undefined && value !== null && value !== '') {
-                        cleanParams[key] = value;
+                console.log('📍 从本地缓存获取数据:', params);
+                
+                // 从本地缓存查询数据
+                const filters = {};
+                
+                // 时间范围过滤
+                if (params.start_date) {
+                    filters.startDate = params.start_date;
+                }
+                if (params.end_date) {
+                    filters.endDate = params.end_date;
+                }
+                
+                // 从缓存获取数据
+                const records = await cacheManager.queryAllData(filters);
+                
+                // 构建返回结果，保持原有API格式
+                return {
+                    success: true,
+                    data: {
+                        records: records,
+                        count: records.length
                     }
-                }
+                };
                 
-                const qs = new URLSearchParams(cleanParams).toString();
-                console.log(`🌐 API调用: /api/records?${qs}`);
-                
-                const response = await fetch(`/api/records?${qs}`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const result = await response.json();
-
-                if (!result.success) {
-                    throw new Error(result.error || '获取数据失败');
-                }
-
-                return result.data.records || [];
             } catch (error) {
-                console.error('API调用失败:', error);
-                throw error;
-            }
-        }
-
-        // 更新缓存状态显示
-        function updateCacheStatus(title, message, type = 'info') {
-            const statusEl = document.getElementById('timeFilterStatus');
-            const statusTextEl = document.getElementById('timeFilterStatusText');
-            
-            if (!statusEl || !statusTextEl) return;
-
-            const icons = {
-                loading: 'fa-spinner fa-spin',
-                success: 'fa-check-circle',
-                warning: 'fa-exclamation-triangle', 
-                error: 'fa-exclamation-circle',
-                info: 'fa-info-circle'
-            };
-
-            const colors = {
-                loading: 'bg-blue-50 border-blue-200 text-blue-800',
-                success: 'bg-green-50 border-green-200 text-green-800',
-                warning: 'bg-amber-50 border-amber-200 text-amber-800',
-                error: 'bg-red-50 border-red-200 text-red-800',
-                info: 'bg-blue-50 border-blue-200 text-blue-800'
-            };
-
-            statusEl.className = `mb-4 p-3 ${colors[type]} rounded-lg`;
-            statusTextEl.innerHTML = `
-                <i class="fa ${icons[type]} mr-2"></i>
-                <strong>${title}:</strong> ${message}
-            `;
-            statusEl.classList.remove('hidden');
-
-            // 更新调试信息
-            updateDebugInfo(title, type);
-
-            // 成功状态3秒后自动隐藏
-            if (type === 'success') {
-                setTimeout(() => {
-                    statusEl.classList.add('hidden');
-                }, 3000);
-            }
-        }
-
-        // 更新调试信息
-        function updateDebugInfo(status, type, additionalInfo = {}) {
-            const debugInfo = document.getElementById('debugInfo');
-            const lastQueryInfo = document.getElementById('lastQueryInfo');
-            const cacheStatusInfo = document.getElementById('cacheStatusInfo');
-            const dataQualityInfo = document.getElementById('dataQualityInfo');
-            
-            if (!debugInfo) return;
-            
-            // 显示调试信息
-            debugInfo.classList.remove('hidden');
-            
-            // 更新最后查询时间
-            if (lastQueryInfo) {
-                lastQueryInfo.textContent = new Date().toLocaleString();
-            }
-            
-            // 更新缓存状态
-            if (cacheStatusInfo) {
-                const statusText = {
-                    loading: '正在加载',
-                    success: '成功',
-                    warning: '警告',
-                    error: '错误',
-                    info: '信息'
-                }[type] || '未知';
-                
-                cacheStatusInfo.textContent = `${statusText} - ${status}`;
-            }
-            
-            // 更新数据质量信息
-            if (dataQualityInfo) {
-                if (additionalInfo.quality && additionalInfo.expectedCount) {
-                    dataQualityInfo.textContent = `${additionalInfo.recordCount}/${additionalInfo.expectedCount} (${additionalInfo.quality}%)`;
-                } else if (additionalInfo.quality) {
-                    dataQualityInfo.textContent = `${additionalInfo.quality}% 完整`;
-                } else if (additionalInfo.recordCount) {
-                    dataQualityInfo.textContent = `${additionalInfo.recordCount} 条记录`;
-                }
+                console.error('❌ 从本地缓存获取数据失败:', error);
+                showError('从本地缓存获取数据失败: ' + error.message);
+                return {
+                    success: false,
+                    data: {
+                        records: [],
+                        count: 0
+                    }
+                };
             }
         }
 
@@ -1761,7 +1116,7 @@
             console.info(msg);
         }
 
-        // 主应用类（使用 API + 缓存）
+        // 主应用类（使用 API）
         class SatelliteApp {
             constructor() {
                 this.cycleEngine = new CycleRuleEngine();
@@ -1772,31 +1127,10 @@
                 this.data = null;
                 this.fieldMappingValues = {
                     planIdField: 'plan_id',
-                    startTimeField: '开始时间', 
-                    taskResultField: '任务结果状态'
+                    startTimeField: 'start_time', 
+                    taskResultField: 'task_result'
                 };
-                // 缓存相关状态
-                this.lastCacheKey = null;
-                this.filterChangeTimeout = null;
-                this.initializeCacheSystem();
                 this.init();
-            }
-
-            async initializeCacheSystem() {
-                try {
-                    // 初始化缓存管理器
-                    await cacheManager.init();
-                    
-                    // 清理过期缓存
-                    await cacheManager.cleanExpiredCache();
-                    
-                    // 显示缓存统计
-                    const stats = await cacheManager.getCacheStats();
-                    console.log('💾 缓存系统已初始化', stats);
-                    
-                } catch (error) {
-                    console.error('缓存系统初始化失败:', error);
-                }
             }
 
             bindElements() {
@@ -1850,207 +1184,33 @@
                         this.dayEndDisplay.textContent = e.target.value;
                     });
                 }
-
-                // 添加筛选条件变化监听器，自动清除相关缓存
-                if (this.startDate) this.startDate.addEventListener('change', () => this.onFilterChange());
-                if (this.endDate) this.endDate.addEventListener('change', () => this.onFilterChange());
-                if (this.groupBy) this.groupBy.addEventListener('change', () => this.onFilterChange());
-
-                // 缓存管理按钮事件
-                const cacheStatsBtn = document.getElementById('cacheStats');
-                const refreshAllDataBtn = document.getElementById('refreshAllData');
-                const clearCacheBtn = document.getElementById('clearCache');
-                
-                if (cacheStatsBtn) {
-                    cacheStatsBtn.addEventListener('click', () => this.showCacheStats());
-                }
-                
-                if (refreshAllDataBtn) {
-                    refreshAllDataBtn.addEventListener('click', () => this.refreshAllData());
-                }
-                
-                if (clearCacheBtn) {
-                    clearCacheBtn.addEventListener('click', () => this.clearAllCache());
-                }
-            }
-
-            // 筛选条件变化时的处理
-            onFilterChange() {
-                // 使用防抖机制，避免频繁操作
-                if (this.filterChangeTimeout) {
-                    clearTimeout(this.filterChangeTimeout);
-                }
-
-                this.filterChangeTimeout = setTimeout(async () => {
-                    try {
-                        const currentCacheKey = cacheManager.generateCacheKey(
-                            this.startDate.value, 
-                            this.endDate.value, 
-                            this.groupBy.value
-                        );
-
-                        console.log('🔄 筛选条件变化，缓存键:', currentCacheKey);
-
-                        // 如果缓存键变化，清除旧缓存（可选）
-                        if (this.lastCacheKey && this.lastCacheKey !== currentCacheKey) {
-                            console.log('🗑️ 筛选条件变化，准备清除相关缓存');
-                            // 这里可以选择清除所有缓存或只清除相关缓存
-                            // 当前策略：不主动清除缓存，让缓存自然过期
-                        }
-
-                        this.lastCacheKey = currentCacheKey;
-
-                        // 显示筛选变化提示
-                        updateCacheStatus(
-                            '筛选条件已更改', 
-                            '点击"生成统计结果"以获取对应数据', 
-                            'info'
-                        );
-
-                    } catch (error) {
-                        console.error('处理筛选变化失败:', error);
-                    }
-                }, 500); // 500ms防抖延迟
-            }
-
-            // 显示缓存统计信息
-            async showCacheStats() {
-                try {
-                    const stats = await cacheManager.getCacheStats();
-                    
-                    const message = `
-                        <div class="text-sm">
-                            <div class="mb-2"><strong>缓存统计信息:</strong></div>
-                            <div class="space-y-1">
-                                <div>🗄️ 全数据缓存: ${stats.totalInCache} 条记录</div>
-                                <div>📦 分页缓存: ${stats.cacheCount} 个缓存项</div>
-                                <div>⏰ 最后更新: ${stats.lastUpdated || '未知'}</div>
-                                <div>💾 缓存时效: 24小时</div>
-                                <div class="mt-2 text-xs text-gray-600">
-                                    新架构：所有数据预载到本地IndexedDB，图表直接使用本地缓存渲染
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    updateCacheStatus('缓存信息', message, 'info');
-                    
-                    // 显示预载信息区域
-                    const preloadInfo = document.getElementById('preloadInfo');
-                    if (preloadInfo) {
-                        preloadInfo.classList.remove('hidden');
-                    }
-                    
-                } catch (error) {
-                    console.error('获取缓存统计失败:', error);
-                    updateCacheStatus('获取失败', '无法获取缓存统计信息', 'error');
-                }
-            }
-
-            // 刷新全部数据
-            async refreshAllData() {
-                try {
-                    const confirmed = confirm('确定要刷新全部数据吗？\n\n这将从PostgreSQL数据库重新获取所有数据并更新本地缓存。\n根据数据量大小，这个过程可能需要几分钟时间。');
-                    if (!confirmed) return;
-                    
-                    updateCacheStatus('开始刷新', '正在刷新全部数据，请稍候...', 'loading');
-                    
-                    // 使用数据预载管理器刷新数据
-                    const result = await dataPreloader.refreshAllData();
-                    
-                    if (result.totalCount > 0) {
-                        updateCacheStatus('刷新完成', `成功刷新 ${result.totalCount} 条数据`, 'success');
-                        
-                        // 如果当前有设置筛选条件，自动重新生成图表
-                        if (this.startDate.value || this.endDate.value) {
-                            console.log('🔄 自动重新生成图表...');
-                            setTimeout(() => {
-                                this.generateStatistics();
-                            }, 1000);
-                        }
-                    } else {
-                        updateCacheStatus('刷新失败', '未能获取到数据', 'warning');
-                    }
-                    
-                } catch (error) {
-                    console.error('刷新全部数据失败:', error);
-                    updateCacheStatus('刷新失败', `刷新全部数据时发生错误: ${error.message}`, 'error');
-                }
-            }
-
-            // 清空所有缓存
-            async clearAllCache() {
-                try {
-                    const confirmed = confirm('确定要清空所有缓存吗？这将导致下次查询需要重新从API获取数据。');
-                    if (!confirmed) return;
-                    
-                    await cacheManager.clearAllCache();
-                    
-                    // 重置当前缓存键
-                    this.lastCacheKey = null;
-                    
-                    updateCacheStatus('缓存已清空', '所有缓存数据已清除，下次查询将重新从API获取数据', 'success');
-                    
-                } catch (error) {
-                    console.error('清空缓存失败:', error);
-                    updateCacheStatus('清空失败', '清空缓存时发生错误', 'error');
-                }
             }
 
             async init() {
                 try {
-                    console.log('🚀 初始化页面，启动数据预载系统...');
-                    this.dbLoading.classList.remove('hidden');
+                    console.log('🔧 SatelliteApp 初始化：从本地缓存加载数据...');
                     
-                    // 显示预载进度信息
-                    const preloadInfo = document.getElementById('preloadInfo');
-                    if (preloadInfo) {
-                        preloadInfo.classList.remove('hidden');
-                    }
+                    // 从本地缓存获取所有数据
+                    const cachedData = await cacheManager.queryAllData();
                     
-                    // 自动预载所有数据
-                    const preloadResult = await dataPreloader.autoPreloadAllData();
-                    
-                    if (preloadResult.totalCount > 0) {
-                        console.log(`✅ 数据预载完成，共 ${preloadResult.totalCount} 条记录`);
-                        
-                        // 设置默认日期
-                        this.setDefaultDates();
-                        
-                        // 从本地缓存获取默认数据以初始化页面
-                        const defaultData = await fetchDataFromLocalCache();
-                        if (defaultData && defaultData.length > 0) {
-                            this.data = defaultData;
-                            console.log(`📊 初始化显示数据: ${defaultData.length} 条记录`);
-                        }
-                        
-                        this.noDataAlert.classList.add('hidden');
-                        
-                        // 显示系统就绪提示
-                        setTimeout(() => {
-                            updateCacheStatus(
-                                '系统就绪', 
-                                `数据预载完成，本地缓存包含 ${preloadResult.totalCount} 条记录。图表将使用本地缓存数据快速渲染。`, 
-                                'success'
-                            );
-                        }, 2000);
-                        
-                    } else {
-                        console.warn('⚠️ 数据预载失败，没有获取到数据');
+                    if (!cachedData || cachedData.length === 0) {
+                        console.warn('⚠️ 本地缓存为空，显示无数据提示');
                         this.noDataAlert.classList.remove('hidden');
-                        updateCacheStatus(
-                            '预载失败', 
-                            '未能从数据库获取数据，请检查网络连接或联系管理员', 
-                            'error'
-                        );
+                        return;
                     }
 
+                    this.data = cachedData;
+                    this.noDataAlert.classList.add('hidden');
+                    
+                    console.log(`✅ 从本地缓存加载了 ${cachedData.length} 条数据`);
+                    console.log(`📊 数据时间范围: ${new Date(Math.min(...cachedData.map(d => d.timestamp))).toLocaleString()} 至 ${new Date(Math.max(...cachedData.map(d => d.timestamp))).toLocaleString()}`);
+                    
+                    this.setDefaultDates();
+
                 } catch (error) {
-                    console.error('初始化失败:', error);
+                    console.error('❌ 应用初始化失败:', error);
+                    showError('应用初始化失败: ' + (error.message || error));
                     this.noDataAlert.classList.remove('hidden');
-                    updateCacheStatus('初始化失败', `系统初始化失败: ${error.message}`, 'error');
-                } finally {
-                    this.dbLoading.classList.add('hidden');
                 }
             }
 
@@ -2104,81 +1264,38 @@
                 return { startDate: startBound, endDate: endBound };
             }
 
-            async applyTimeFilter() {
-                try {
-                    console.log('🚀 开始应用时间筛选 (使用本地缓存)');
-                    
-                    // 获取当前筛选条件
-                    const startDate = this.startDate.value;
-                    const endDate = this.endDate.value;
-                    const groupType = this.groupBy.value;
-                    
-                    console.log('📋 筛选条件:', { startDate, endDate, groupType });
-                    
-                    // 直接从本地缓存查询数据
-                    const data = await fetchDataFromLocalCache(startDate, endDate);
-                    
-                    if (data && data.length > 0) {
-                        console.log(`✅ 本地缓存查询成功: ${data.length} 条记录`);
-                        this.data = data;
-                        
-                        // 更新调试信息
-                        updateDebugInfo('本地缓存筛选', 'success', { 
-                            recordCount: data.length,
-                            source: '本地IndexedDB缓存' 
-                        });
-                        
-                    } else {
-                        console.log('⚠️ 本地缓存中未找到符合条件的数据');
-                        this.data = [];
-                        updateDebugInfo('无匹配数据', 'warning', { 
-                            recordCount: 0,
-                            source: '本地IndexedDB缓存' 
-                        });
-                    }
-                    
-                } catch (error) {
-                    console.error('本地缓存筛选失败:', error);
-                    updateCacheStatus('筛选失败', `本地缓存筛选失败: ${error.message}`, 'error');
-                    // 保持现有数据不变
-                }
-            }
-
             async generateStatistics() {
+                if (!this.data) {
+                    showError('当前没有数据，请先导入数据后重试');
+                    return;
+                }
+
                 this.chartLoadingState.classList.remove('hidden');
                 this.chartEmptyState.classList.add('hidden');
                 this.chartErrorState.classList.add('hidden');
                 this.detailTableBody.innerHTML = '';
 
                 try {
-                    // 先应用时间筛选，等待API数据返回
-                    await this.applyTimeFilter();
-
-                    // 检查筛选后是否有数据
-                    if (!this.data || this.data.length === 0) {
-                        this.chartEmptyState.classList.remove('hidden');
-                        return;
-                    }
-
+                    console.log('📊 开始生成统计结果（基于本地缓存数据）...');
+                    
                     const groupType = this.groupBy.value;
                     const range = this.computeDateRangeForGroup(groupType, this.startDate.value, this.endDate.value);
                     const startDate = range.startDate;
                     const endDate = range.endDate;
+                    
+                    console.log(`🔍 统计参数: 分组类型=${groupType}, 时间范围=${startDate?.toISOString()} 至 ${endDate?.toISOString()}`);
+                    console.log(`💾 本地缓存数据总数: ${this.data.length} 条`);
 
-                    // 用筛选后的数据生成统计
                     const stats = this.groupDataByCycle(groupType, startDate, endDate);
                     
-                    if (stats.length === 0) {
-                        this.chartEmptyState.classList.remove('hidden');
-                        return;
-                    }
+                    console.log(`📈 生成统计组数: ${stats.length}`);
                     
                     this.updateChart(stats, groupType);
                     this.updateStatCards(stats);
                     this.updateDetailTable(stats);
 
                 } catch (error) {
-                    console.error('生成统计结果失败:', error);
+                    console.error('❌ 生成统计结果失败:', error);
                     this.chartErrorMessage.textContent = '生成统计结果时出错: ' + error.message;
                     this.chartErrorState.classList.remove('hidden');
                 } finally {
@@ -2190,29 +1307,16 @@
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
 
-                // 时间筛选已在generateStatistics中完成，这里直接处理数据
-
                 this.data.forEach(item => {
                     try {
-                        // 支持多种字段格式
-                        const timeValue = item[startTimeField] || item['start_time'] || item['开始时间'];
-                        const planId = item[planIdField] || item['plan_id'] || item['计划ID'];
-                        const taskResult = item[taskResultField] || item['task_result'] || item['任务结果状态'];
-                        
+                        const timeValue = item[startTimeField];
                         let date;
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            // 严格按照北京时间解析字符串时间，移除时区偏移
-                            const cleanTimeStr = timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
-                            date = new Date(cleanTimeStr);
+                            date = new Date(timeValue);
                         } else if (typeof timeValue === 'number') {
-                            // Excel数字时间转换 - 严格按照北京时间，不添加时区偏移
-                            // Excel基准日期为1900年1月1日，但需要减去2天的bug修正
-                            const excelBaseDate = new Date(1900, 0, 1); // 1900年1月1日
-                            const days = Math.floor(timeValue - 1); // Excel从1开始计数，减去1天
-                            const timeInDay = (timeValue - Math.floor(timeValue)) * 24 * 60 * 60 * 1000;
-                            date = new Date(excelBaseDate.getTime() + (days - 1) * 24 * 60 * 60 * 1000 + timeInDay);
+                            date = new Date((timeValue - 25569) * 86400000);
                         } else {
                             return;
                         }
@@ -2236,9 +1340,9 @@
                         }
 
                         const group = groups[groupInfo.key];
-                        group.planIds.add(planId);
+                        group.planIds.add(item[planIdField]);
                         group.count = group.planIds.size;
-                        group.results.push(taskResult || '未知');
+                        group.results.push(item[taskResultField] || '未知');
 
                     } catch (error) {
                         console.warn('处理数据项失败:', item, error);
@@ -2488,9 +1592,22 @@
 
         }
 
-        // 初始化应用
-        document.addEventListener('DOMContentLoaded', () => {
-            window.app = new SatelliteApp();
+        // 初始化应用 - 添加自动数据预载
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // 页面加载时自动预载所有数据
+                console.log('🌟 页面加载完成，开始自动预载数据...');
+                await dataPreloader.autoPreloadAllData();
+                
+                // 初始化应用
+                window.app = new SatelliteApp();
+                
+                console.log('✅ 应用初始化完成，数据已预载到本地缓存');
+            } catch (error) {
+                console.error('❌ 应用初始化失败:', error);
+                // 即使预载失败也要初始化应用
+                window.app = new SatelliteApp();
+            }
         });
     </script>
 </body>
