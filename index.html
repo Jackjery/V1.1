@@ -385,7 +385,16 @@
         // 从后端 API 获取数据的通用函数
         async function fetchDataFromAPI(params = {}) {
             try {
-                const qs = new URLSearchParams(params).toString();
+                // 清理参数，过滤空值
+                const cleanParams = {};
+                for (const [key, value] of Object.entries(params)) {
+                    if (value !== undefined && value !== null && value !== '') {
+                        cleanParams[key] = value;
+                    }
+                }
+                
+                console.log('🔍 API调用参数:', cleanParams);
+                const qs = new URLSearchParams(cleanParams).toString();
                 const response = await fetch(`/api/records?${qs}`);
                 
                 if (!response.ok) {
@@ -650,8 +659,8 @@
                 this.data = null;
                 this.fieldMappingValues = {
                     planIdField: 'plan_id',
-                    startTimeField: 'start_time', 
-                    taskResultField: 'task_result'
+                    startTimeField: '开始时间', 
+                    taskResultField: '任务结果状态'
                 };
                 this.init();
             }
@@ -712,7 +721,16 @@
             async init() {
                 try {
                     this.dbLoading.classList.remove('hidden');
-                    const apiRecords = await fetchDataFromAPI();
+                    
+                    // 获取当前设置的时间范围（如果有的话）
+                    const startDate = this.startDate?.value;
+                    const endDate = this.endDate?.value;
+                    
+                    const params = {};
+                    if (startDate) params.startDate = startDate;
+                    if (endDate) params.endDate = endDate;
+                    
+                    const apiRecords = await fetchDataFromAPI(params);
                     if (!apiRecords || apiRecords.length === 0) {
                         this.noDataAlert.classList.remove('hidden');
                         this.dbLoading.classList.add('hidden');
@@ -781,6 +799,30 @@
                 return { startDate: startBound, endDate: endBound };
             }
 
+            async applyTimeFilter(startDate, endDate) {
+                if (!startDate && !endDate) return; // 如果没有时间筛选条件，跳过
+                
+                try {
+                    const params = {};
+                    if (startDate) params.startDate = startDate.toISOString().split('T')[0];
+                    if (endDate) params.endDate = endDate.toISOString().split('T')[0];
+                    
+                    console.log('🔍 应用时间筛选，重新获取数据:', params);
+                    
+                    // 重新从API获取筛选后的数据
+                    const apiRecords = await fetchDataFromAPI(params);
+                    if (apiRecords && apiRecords.length > 0) {
+                        console.log(`✅ 获取到筛选后的数据: ${apiRecords.length} 条`);
+                        this.data = apiRecords;
+                    } else {
+                        console.log('⚠️ 时间筛选未返回数据，保持原有数据');
+                    }
+                } catch (error) {
+                    console.error('时间筛选失败:', error);
+                    // 时间筛选失败时保持原有数据
+                }
+            }
+
             async generateStatistics() {
                 if (!this.data) {
                     showError('当前没有数据，请先导入数据后重试');
@@ -817,9 +859,16 @@
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
 
+                // 应用时间筛选并重新获取数据
+                this.applyTimeFilter(startDate, endDate);
+
                 this.data.forEach(item => {
                     try {
-                        const timeValue = item[startTimeField];
+                        // 支持多种字段格式
+                        const timeValue = item[startTimeField] || item['start_time'] || item['开始时间'];
+                        const planId = item[planIdField] || item['plan_id'] || item['计划ID'];
+                        const taskResult = item[taskResultField] || item['task_result'] || item['任务结果状态'];
+                        
                         let date;
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
@@ -857,9 +906,9 @@
                         }
 
                         const group = groups[groupInfo.key];
-                        group.planIds.add(item[planIdField]);
+                        group.planIds.add(planId);
                         group.count = group.planIds.size;
-                        group.results.push(item[taskResultField] || '未知');
+                        group.results.push(taskResult || '未知');
 
                     } catch (error) {
                         console.warn('处理数据项失败:', item, error);
