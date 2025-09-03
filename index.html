@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 
     <!-- Tailwind 配置 -->
     <script>
@@ -152,6 +153,14 @@
                     <option value="month">按月</option>
                     <option value="quarter">按季度</option>
                 </select>
+            </div>
+
+            <div class="mb-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="showDataLabels" class="mr-2 w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary focus:ring-2">
+                    <span class="text-sm font-medium text-gray-700">显示数据标签</span>
+                </label>
+                <p class="text-xs text-gray-500 mt-1">勾选后数据点上直接显示数值，取消勾选则鼠标悬停时显示</p>
             </div>
 
             <button id="generateChart" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors">
@@ -1343,6 +1352,7 @@
                 this.startDate = document.getElementById('startDate');
                 this.endDate = document.getElementById('endDate');
                 this.groupBy = document.getElementById('groupBy');
+                this.showDataLabels = document.getElementById('showDataLabels');
                 this.generateChart = document.getElementById('generateChart');
                 this.configGroupingBtn = document.getElementById('configGroupingBtn');
 
@@ -1390,6 +1400,7 @@
                 if (this.configGroupingBtn) this.configGroupingBtn.addEventListener('click', () => this.openGroupingConfig());
                 if (this.closeConfigModal) this.closeConfigModal.addEventListener('click', () => this.closeGroupingConfig());
                 if (this.saveGroupingConfig) this.saveGroupingConfig.addEventListener('click', () => this.saveGroupingConfiguration());
+                if (this.showDataLabels) this.showDataLabels.addEventListener('change', () => this.toggleDataLabels());
                 if (this.dayStart) {
                     this.dayStart.addEventListener('change', (e) => {
                         this.dayStartDisplay.textContent = e.target.value;
@@ -1723,8 +1734,14 @@
                 const planCounts = stats.map(stat => stat.count);
                 const failureCounts = stats.map(stat => stat.failureCount);
                 const successRates = stats.map(stat => parseFloat(stat.successRate.toFixed(3)));
+                
+                // 获取是否显示数据标签的设置
+                const showLabels = this.showDataLabels.checked;
 
                 const ctx = this.dataChart.getContext('2d');
+
+                // 注册数据标签插件
+                Chart.register(ChartDataLabels);
 
                 this.chart = new Chart(ctx, {
                     type: 'line',
@@ -1739,7 +1756,17 @@
                                 borderWidth: 2,
                                 fill: false,
                                 tension: 0.3,
-                                yAxisID: 'y'
+                                yAxisID: 'y',
+                                datalabels: {
+                                    display: showLabels,
+                                    color: '#165DFF',
+                                    anchor: 'end',
+                                    align: 'top',
+                                    font: {
+                                        size: 10,
+                                        weight: 'bold'
+                                    }
+                                }
                             },
                             {
                                 label: '失败圈次计数',
@@ -1749,7 +1776,17 @@
                                 borderWidth: 2,
                                 fill: false,
                                 tension: 0.3,
-                                yAxisID: 'y'
+                                yAxisID: 'y',
+                                datalabels: {
+                                    display: showLabels,
+                                    color: '#F53F3F',
+                                    anchor: 'end',
+                                    align: 'bottom',
+                                    font: {
+                                        size: 10,
+                                        weight: 'bold'
+                                    }
+                                }
                             },
                             {
                                 label: '成功率(%)',
@@ -1761,7 +1798,20 @@
                                 tension: 0.3,
                                 yAxisID: 'y1',
                                 pointRadius: 4,
-                                pointBackgroundColor: '#00B42A'
+                                pointBackgroundColor: '#00B42A',
+                                datalabels: {
+                                    display: showLabels,
+                                    color: '#00B42A',
+                                    anchor: 'end',
+                                    align: 'top',
+                                    font: {
+                                        size: 10,
+                                        weight: 'bold'
+                                    },
+                                    formatter: function(value) {
+                                        return value + '%';
+                                    }
+                                }
                             }
                         ]
                     },
@@ -1799,6 +1849,9 @@
                             }
                         },
                         plugins: {
+                            datalabels: {
+                                display: showLabels
+                            },
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
@@ -1813,6 +1866,22 @@
                         }
                     }
                 });
+            }
+
+            toggleDataLabels() {
+                if (this.chart) {
+                    const showLabels = this.showDataLabels.checked;
+                    
+                    // 更新所有数据集的标签显示设置
+                    this.chart.data.datasets.forEach(dataset => {
+                        if (dataset.datalabels) {
+                            dataset.datalabels.display = showLabels;
+                        }
+                    });
+                    
+                    // 更新图表
+                    this.chart.update('none'); // 使用 'none' 模式实现即时更新
+                }
             }
 
             updateStatCards(stats) {
