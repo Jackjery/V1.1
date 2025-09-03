@@ -25,16 +25,28 @@ export default async function handler(req, res) {
         // 解析查询参数
         const {
             page = 1,
-            limit = 1000,
+            limit,
             startDate,
             endDate,
             taskResult,
-            planId
+            planId,
+            // 支持无限制获取所有数据
+            no_limit,
+            fetch_all,
+            ignore_filters
         } = req.query;
 
         // 参数验证
         const pageNum = Math.max(1, parseInt(page) || 1);
-        const limitNum = Math.min(1000, Math.max(1, parseInt(limit) || 1000));
+        
+        // 完全不限制数据条数，支持几十万数据
+        let limitNum;
+        if (limit && !isNaN(parseInt(limit))) {
+            limitNum = parseInt(limit);
+        } else {
+            // 默认不限制条数，获取所有数据
+            limitNum = Number.MAX_SAFE_INTEGER;
+        }
 
         // 构建查询选项
         const options = {
