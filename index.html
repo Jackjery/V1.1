@@ -96,9 +96,29 @@
             </h2>
             <div class="bg-blue-50 p-4 rounded-lg">
                 <p class="text-sm text-gray-700 mb-2">✅ 数据现在存储在 Postgres 数据库中，通过后端 API 提供</p>
+                <p class="text-sm text-gray-700 mb-2">⚡ 已启用智能本地缓存，首次访问后将秒速加载数据</p>
                 <p class="text-sm text-gray-700 mb-2">📊 数据管理请访问 <a href="admin.html" class="text-primary hover:underline font-medium">管理页面</a> 进行数据导入和管理</p>
                 <p class="text-sm text-gray-700 mb-2">🔑 管理员登录: <a href="login.html" class="text-primary hover:underline font-medium">点击登录</a></p>
                 <p class="text-sm text-gray-700">💡 所有时间处理均基于文件时间（北京时间），不进行时区转换</p>
+            </div>
+            
+            <!-- 缓存管理控制面板 -->
+            <div class="mt-4 p-4 bg-gray-50 rounded-lg border">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-700 flex items-center">
+                        <i class="fa fa-database text-primary mr-2"></i>本地缓存管理
+                    </h3>
+                    <span id="cacheStatus" class="text-xs px-2 py-1 rounded-full bg-gray-200 text-gray-600">检查中...</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button id="refreshCacheBtn" class="text-xs px-3 py-1 bg-primary text-white rounded hover:bg-primary/90 transition-colors">
+                        <i class="fa fa-refresh mr-1"></i>刷新缓存
+                    </button>
+                    <button id="clearCacheBtn" class="text-xs px-3 py-1 bg-warning text-white rounded hover:bg-warning/90 transition-colors">
+                        <i class="fa fa-trash mr-1"></i>清空缓存
+                    </button>
+                    <span id="cacheInfo" class="text-xs text-gray-500 self-center"></span>
+                </div>
             </div>
         </section>
 
@@ -656,16 +676,30 @@
                 this.preloadProgress = 0;
             }
 
-            // 页面加载时自动预载所有数据
+            // 页面加载时自动预载所有数据（优化版本）
             async autoPreloadAllData() {
                 try {
-                    console.log('🚀 页面加载：开始自动预载全部数据...');
+                    console.log('🚀 页面加载：开始智能预载数据...');
                     this.isPreloading = true;
                     this.updatePreloadStatus('正在检查本地缓存...', 'loading');
 
-                    // 总是重新从数据库获取最新数据
-                    console.log('🌐 重新从 Postgres 数据库获取最新数据...');
-                    this.updatePreloadStatus('正在从数据库获取全部数据...', 'loading');
+                    // 首先检查本地缓存
+                    const cacheInfo = await cacheManager.checkAllDataCache();
+                    
+                    if (cacheInfo && cacheInfo.totalCount > 0) {
+                        // 如果有缓存，立即使用
+                        console.log(`💾 发现本地缓存 ${cacheInfo.totalCount} 条数据，立即可用！`);
+                        this.updatePreloadStatus(`✅ 从本地缓存加载 ${cacheInfo.totalCount} 条数据（秒速加载）`, 'success');
+                        this.isPreloading = false;
+                        
+                        // 后台静默更新缓存
+                        setTimeout(() => this.backgroundUpdate(), 2000);
+                        return { success: true, totalCount: cacheInfo.totalCount };
+                    }
+
+                    // 没有缓存时从数据库获取
+                    console.log('🌐 首次使用，从 Postgres 数据库获取全部数据...');
+                    this.updatePreloadStatus('首次使用，正在从数据库获取全部数据...', 'loading');
 
                     const allData = await this.fetchAllDataFromAPI();
                     
@@ -676,7 +710,7 @@
                         const storedCount = await cacheManager.storeAllData(allData);
                         
                         console.log('✅ 数据预载完成！');
-                        this.updatePreloadStatus(`✅ 成功预载并缓存 ${storedCount} 条数据，已按开始时间升序排列`, 'success');
+                        this.updatePreloadStatus(`✅ 成功预载并缓存 ${storedCount} 条数据，下次访问将秒速加载`, 'success');
                         
                         this.isPreloading = false;
                         return { success: true, totalCount: storedCount };
@@ -693,6 +727,21 @@
                     this.updatePreloadStatus(`❌ 数据预载失败: ${error.message}`, 'error');
                     this.isPreloading = false;
                     throw error;
+                }
+            }
+
+            // 后台静默更新缓存
+            async backgroundUpdate() {
+                try {
+                    console.log('🔄 后台静默更新缓存...');
+                    const allData = await this.fetchAllDataFromAPI();
+                    
+                    if (allData && allData.length > 0) {
+                        await cacheManager.storeAllData(allData);
+                        console.log(`✅ 后台缓存更新完成，更新了 ${allData.length} 条数据`);
+                    }
+                } catch (error) {
+                    console.warn('⚠️ 后台缓存更新失败:', error);
                 }
             }
 
@@ -1114,6 +1163,20 @@
 
         function showSuccess(msg) {
             console.info(msg);
+            // 创建临时成功提示
+            const successEl = document.createElement('div');
+            successEl.className = 'fixed top-4 right-4 bg-success text-white px-4 py-2 rounded-lg shadow-lg z-50 transform transition-all duration-300 translate-x-full';
+            successEl.innerHTML = `<i class="fa fa-check-circle mr-2"></i>${msg}`;
+            document.body.appendChild(successEl);
+            
+            // 动画显示
+            setTimeout(() => successEl.classList.remove('translate-x-full'), 100);
+            
+            // 3秒后移除
+            setTimeout(() => {
+                successEl.classList.add('translate-x-full');
+                setTimeout(() => document.body.removeChild(successEl), 300);
+            }, 3000);
         }
 
         // 主应用类（使用 API）
@@ -1171,6 +1234,12 @@
 
                 this.dbLoading = document.getElementById('dbLoading');
                 this.noDataAlert = document.getElementById('noDataAlert');
+                
+                // 缓存管理元素
+                this.cacheStatus = document.getElementById('cacheStatus');
+                this.refreshCacheBtn = document.getElementById('refreshCacheBtn');
+                this.clearCacheBtn = document.getElementById('clearCacheBtn');
+                this.cacheInfo = document.getElementById('cacheInfo');
             }
 
             bindEvents() {
@@ -1184,6 +1253,10 @@
                         this.dayEndDisplay.textContent = e.target.value;
                     });
                 }
+                
+                // 缓存管理事件
+                if (this.refreshCacheBtn) this.refreshCacheBtn.addEventListener('click', () => this.refreshCache());
+                if (this.clearCacheBtn) this.clearCacheBtn.addEventListener('click', () => this.clearCache());
             }
 
             async init() {
@@ -1206,11 +1279,98 @@
                     console.log(`📊 数据时间范围: ${new Date(Math.min(...cachedData.map(d => d.timestamp))).toLocaleString()} 至 ${new Date(Math.max(...cachedData.map(d => d.timestamp))).toLocaleString()}`);
                     
                     this.setDefaultDates();
+                    this.updateCacheStatus();
 
                 } catch (error) {
                     console.error('❌ 应用初始化失败:', error);
                     showError('应用初始化失败: ' + (error.message || error));
                     this.noDataAlert.classList.remove('hidden');
+                }
+            }
+
+            // 更新缓存状态显示
+            async updateCacheStatus() {
+                try {
+                    const cacheInfo = await cacheManager.checkAllDataCache();
+                    
+                    if (cacheInfo) {
+                        this.cacheStatus.textContent = '✅ 已缓存';
+                        this.cacheStatus.className = 'text-xs px-2 py-1 rounded-full bg-success/10 text-success';
+                        this.cacheInfo.textContent = `${cacheInfo.totalCount} 条数据 · ${new Date(cacheInfo.lastUpdated).toLocaleString()}`;
+                    } else {
+                        this.cacheStatus.textContent = '❌ 无缓存';
+                        this.cacheStatus.className = 'text-xs px-2 py-1 rounded-full bg-danger/10 text-danger';
+                        this.cacheInfo.textContent = '暂无本地缓存数据';
+                    }
+                } catch (error) {
+                    this.cacheStatus.textContent = '⚠️ 检查失败';
+                    this.cacheStatus.className = 'text-xs px-2 py-1 rounded-full bg-warning/10 text-warning';
+                    this.cacheInfo.textContent = '缓存状态检查失败';
+                }
+            }
+
+            // 手动刷新缓存
+            async refreshCache() {
+                try {
+                    this.refreshCacheBtn.disabled = true;
+                    this.refreshCacheBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>刷新中...';
+                    
+                    console.log('🔄 用户手动刷新缓存...');
+                    const result = await dataPreloader.autoPreloadAllData();
+                    
+                    if (result.success) {
+                        showSuccess(`缓存刷新成功！更新了 ${result.totalCount} 条数据`);
+                        // 重新加载数据到应用
+                        await this.init();
+                    }
+                    
+                    this.updateCacheStatus();
+                    
+                } catch (error) {
+                    console.error('❌ 缓存刷新失败:', error);
+                    showError('缓存刷新失败: ' + error.message);
+                } finally {
+                    this.refreshCacheBtn.disabled = false;
+                    this.refreshCacheBtn.innerHTML = '<i class="fa fa-refresh mr-1"></i>刷新缓存';
+                }
+            }
+
+            // 清空缓存
+            async clearCache() {
+                if (!confirm('确定要清空本地缓存吗？下次访问将重新从数据库加载数据。')) {
+                    return;
+                }
+                
+                try {
+                    this.clearCacheBtn.disabled = true;
+                    this.clearCacheBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>清空中...';
+                    
+                    console.log('🧹 用户清空缓存...');
+                    await cacheManager.clearAllDataCache();
+                    
+                    // 清空应用数据
+                    this.data = null;
+                    this.noDataAlert.classList.remove('hidden');
+                    
+                    // 清空图表
+                    if (this.chart) {
+                        this.chart.destroy();
+                        this.chart = null;
+                    }
+                    
+                    // 重置统计卡片
+                    this.updateStatCards([]);
+                    this.updateDetailTable([]);
+                    
+                    showSuccess('本地缓存已清空');
+                    this.updateCacheStatus();
+                    
+                } catch (error) {
+                    console.error('❌ 清空缓存失败:', error);
+                    showError('清空缓存失败: ' + error.message);
+                } finally {
+                    this.clearCacheBtn.disabled = false;
+                    this.clearCacheBtn.innerHTML = '<i class="fa fa-trash mr-1"></i>清空缓存';
                 }
             }
 
