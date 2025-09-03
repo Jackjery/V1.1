@@ -748,72 +748,90 @@
             // 从API获取所有数据（无分页限制）
             async fetchAllDataFromAPI() {
                 try {
-                    console.log('📡 开始从API获取所有数据（无条数限制）...');
+                    console.log('📡 开始从API一次性获取所有数据（无条数限制）...');
+                    
+                    // 构建API参数（获取所有数据）
+                    const params = {
+                        // 不传limit参数，后端将返回所有数据
+                        order_by: 'start_time',
+                        sort: 'ASC',
+                        // 确保获取全部数据的标记
+                        no_limit: true,
+                        fetch_all: true
+                    };
+
+                    console.log('🔍 API调用参数:', params);
+
+                    // 一次性获取所有数据
+                    const allData = await this.fetchSinglePageFromAPI(params);
+
+                    if (allData && allData.length > 0) {
+                        console.log(`✅ 成功一次性获取 ${allData.length} 条记录`);
+                        return allData;
+                    } else {
+                        console.log('⚠️ 未获取到任何数据');
+                        return [];
+                    }
+
+                } catch (error) {
+                    console.error('❌ 获取全数据失败:', error);
+                    // 如果一次性获取失败，回退到分页获取
+                    console.log('🔄 一次性获取失败，回退到分页获取模式...');
+                    return await this.fetchAllDataWithPagination();
+                }
+            }
+
+            // 备用的分页获取方法
+            async fetchAllDataWithPagination() {
+                try {
+                    console.log('📡 使用分页模式获取所有数据...');
                     
                     let allData = [];
                     let offset = 0;
-                    const pageSize = 5000; // 增大页面大小提高效率
+                    const pageSize = 10000; // 使用较大的页面大小
                     let hasMore = true;
                     let currentPage = 1;
                     let consecutiveEmptyPages = 0;
-                    const maxEmptyPages = 10; // 允许更多空页以确保完整获取
+                    const maxEmptyPages = 5;
 
                     while (hasMore) {
-                        console.log(`📄 [页面 ${currentPage}] 开始获取数据 (offset: ${offset}, limit: ${pageSize}, 已累计: ${allData.length} 条)...`);
+                        console.log(`📄 [页面 ${currentPage}] 获取数据 (offset: ${offset}, 已累计: ${allData.length} 条)...`);
 
-                        // 构建API参数（移除所有限制）
                         const params = {
                             offset: offset,
                             limit: pageSize,
                             order_by: 'start_time',
-                            sort: 'ASC',
-                            // 确保获取全部数据
-                            no_limit: true,
-                            fetch_all: true,
-                            ignore_filters: true
+                            sort: 'ASC'
                         };
 
-                        console.log('🔍 API调用参数:', params);
-
-                        // 获取一页数据
                         const pageData = await this.fetchSinglePageFromAPI(params);
 
                         if (pageData && pageData.length > 0) {
                             allData.push(...pageData);
-                            console.log(`✅ [页面 ${currentPage}] 成功获取 ${pageData.length} 条记录，累计总数: ${allData.length} 条`);
+                            console.log(`✅ [页面 ${currentPage}] 获取 ${pageData.length} 条，累计: ${allData.length} 条`);
                             
                             consecutiveEmptyPages = 0;
                             offset += pageSize;
                             currentPage++;
-                            
-                            // 每10页显示一次进度摘要
-                            if (currentPage % 10 === 0) {
-                                console.log(`🔄 分页进度: 已处理 ${currentPage-1} 页，累计获取 ${allData.length} 条记录`);
-                            }
                         } else {
                             consecutiveEmptyPages++;
-                            console.log(`⚠️ [页面 ${currentPage}] 空页面。连续空页计数: ${consecutiveEmptyPages}/${maxEmptyPages}`);
-                            
                             if (consecutiveEmptyPages >= maxEmptyPages) {
                                 hasMore = false;
-                                console.log(`🏁 连续遇到 ${consecutiveEmptyPages} 个空页面，数据获取完成。总计: ${allData.length} 条记录`);
+                                console.log(`🏁 数据获取完成，总计: ${allData.length} 条记录`);
                             } else {
                                 offset += pageSize;
                                 currentPage++;
                             }
                         }
 
-                        // 添加延迟避免过快请求
-                        await new Promise(resolve => setTimeout(resolve, 50));
+                        // 添加短暂延迟
+                        await new Promise(resolve => setTimeout(resolve, 10));
                     }
-
-                    console.log(`🎉 全数据获取完成！`);
-                    console.log(`📊 获取统计: 总页数 ${currentPage-1}，总记录数 ${allData.length}`);
                     
                     return allData;
 
                 } catch (error) {
-                    console.error('❌ 获取全数据失败:', error);
+                    console.error('❌ 分页获取数据失败:', error);
                     throw error;
                 }
             }
