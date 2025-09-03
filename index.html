@@ -491,12 +491,9 @@
                                 ...record
                             };
                             
-                            // 添加时间戳用于快速查询和排序
+                            // 添加时间戳用于快速查询和排序（避免时区转换）
                             if (standardRecord.start_time) {
-                                const timeValue = typeof standardRecord.start_time === 'string' ? 
-                                    new Date(standardRecord.start_time.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim()) : 
-                                    new Date(standardRecord.start_time);
-                                standardRecord.timestamp = isNaN(timeValue.getTime()) ? 0 : timeValue.getTime();
+                                standardRecord.timestamp = this.parseTimeToTimestamp(standardRecord.start_time);
                             }
                             
                             allDataStore.put(standardRecord);
@@ -554,7 +551,7 @@
                 });
             }
 
-            // 解析各种时间格式为时间戳
+            // 解析各种时间格式为时间戳（避免时区转换）
             parseTimeToTimestamp(timeValue) {
                 if (typeof timeValue === 'number') {
                     return timeValue > 1000000000000 ? timeValue : timeValue * 1000;
@@ -562,7 +559,8 @@
                 
                 if (typeof timeValue === 'string') {
                     const cleanTimeStr = timeValue.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
-                    const date = new Date(cleanTimeStr);
+                    // 使用本地时区解析时间，避免UTC转换
+                    const date = this.parseLocalTime(cleanTimeStr);
                     return isNaN(date.getTime()) ? 0 : date.getTime();
                 }
                 
@@ -571,6 +569,55 @@
                 }
                 
                 return 0;
+            }
+
+            // 解析本地日期字符串为时间戳（避免时区转换）
+            parseLocalDateToTimestamp(dateStr, hours = 0, minutes = 0, seconds = 0, ms = 0) {
+                if (!dateStr) return 0;
+                
+                try {
+                    const parts = dateStr.split('-');
+                    if (parts.length === 3) {
+                        const year = parseInt(parts[0]);
+                        const month = parseInt(parts[1]) - 1; // JavaScript月份从0开始
+                        const day = parseInt(parts[2]);
+                        
+                        // 直接构造本地时间，避免UTC转换
+                        const date = new Date(year, month, day, hours, minutes, seconds, ms);
+                        return date.getTime();
+                    }
+                } catch (error) {
+                    console.warn('解析日期失败:', dateStr, error);
+                }
+                
+                return 0;
+            }
+
+            // 解析本地时间字符串，避免UTC转换
+            parseLocalTime(timeStr) {
+                if (!timeStr) return new Date(NaN);
+                
+                try {
+                    // 尝试解析 YYYY-MM-DD HH:mm:ss 格式
+                    const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
+                    if (match) {
+                        const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
+                        // 直接构造本地时间，不经过UTC转换
+                        return new Date(
+                            parseInt(year), 
+                            parseInt(month) - 1, 
+                            parseInt(day), 
+                            parseInt(hour), 
+                            parseInt(minute), 
+                            parseInt(second)
+                        );
+                    }
+                    
+                    // 回退到默认解析
+                    return new Date(timeStr);
+                } catch (error) {
+                    return new Date(NaN);
+                }
             }
 
             // 从本地缓存查询数据（支持时间范围筛选）
@@ -585,23 +632,33 @@
                     request.onsuccess = () => {
                         let results = request.result || [];
                         
-                        // 应用时间范围过滤
+                        // 应用时间范围过滤（避免时区转换问题）
                         if (filters.startDate || filters.endDate) {
+                            let startTime, endTime;
+                            
+                            if (filters.startDate) {
+                                // 解析开始日期为本地时间00:00:00
+                                startTime = this.parseLocalDateToTimestamp(filters.startDate, 0, 0, 0);
+                                console.log(`🔍 筛选开始时间: ${filters.startDate} -> ${new Date(startTime).toLocaleString()}`);
+                            }
+                            
+                            if (filters.endDate) {
+                                // 解析结束日期为本地时间23:59:59.999
+                                endTime = this.parseLocalDateToTimestamp(filters.endDate, 23, 59, 59, 999);
+                                console.log(`🔍 筛选结束时间: ${filters.endDate} -> ${new Date(endTime).toLocaleString()}`);
+                            }
+                            
+                            const beforeFilter = results.length;
                             results = results.filter(record => {
                                 const recordTime = record.timestamp || this.parseTimeToTimestamp(record.start_time);
                                 
-                                if (filters.startDate) {
-                                    const startTime = new Date(filters.startDate).getTime();
-                                    if (recordTime < startTime) return false;
-                                }
-                                
-                                if (filters.endDate) {
-                                    const endTime = new Date(filters.endDate).getTime() + 24 * 60 * 60 * 1000 - 1; // 包含整天
-                                    if (recordTime > endTime) return false;
-                                }
+                                if (filters.startDate && recordTime < startTime) return false;
+                                if (filters.endDate && recordTime > endTime) return false;
                                 
                                 return true;
                             });
+                            
+                            console.log(`🔍 时间筛选: ${beforeFilter} -> ${results.length} 条数据`);
                         }
                         
                         console.log(`🔍 从本地缓存查询到 ${results.length} 条数据`);
@@ -1492,7 +1549,8 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = new Date(timeValue);
+                            // 使用本地时间解析，避免UTC转换
+                            date = cacheManager.parseLocalTime(timeValue);
                         } else if (typeof timeValue === 'number') {
                             date = new Date((timeValue - 25569) * 86400000);
                         } else {
