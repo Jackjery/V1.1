@@ -646,14 +646,14 @@
                             let startTime, endTime;
                             
                             if (filters.startDate) {
-                                // 解析开始日期为本地时间08:00:00（修复时区偏移问题）
-                                startTime = this.parseLocalDateToTimestamp(filters.startDate, 8, 0, 0);
+                                // 解析开始日期为本地时间00:00:00
+                                startTime = this.parseLocalDateToTimestamp(filters.startDate, 0, 0, 0);
                                 console.log(`🔍 筛选开始时间: ${filters.startDate} -> ${new Date(startTime).toLocaleString()}`);
                             }
                             
                             if (filters.endDate) {
-                                // 解析结束日期为本地时间08:00:00（修复时区偏移问题）
-                                endTime = this.parseLocalDateToTimestamp(filters.endDate, 8, 0, 0);
+                                // 解析结束日期为本地时间23:59:59.999
+                                endTime = this.parseLocalDateToTimestamp(filters.endDate, 23, 59, 59, 999);
                                 console.log(`🔍 筛选结束时间: ${filters.endDate} -> ${new Date(endTime).toLocaleString()}`);
                             }
                             
@@ -1571,8 +1571,8 @@
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到本地解析', err);
-                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 8, 0, 0, 0);
-                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 8, 0, 0, 0);
+                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
+                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 23, 59, 59, 999);
                 }
 
                 return { startDate: startBound, endDate: endBound };
@@ -1704,9 +1704,36 @@
                 });
                 
                 // 转换为数组并按时间排序（文件时间顺序）
-                const statsArray = Object.values(groups).sort((a, b) => {
+                let statsArray = Object.values(groups).sort((a, b) => {
                     return a.rangeStart - b.rangeStart;
                 });
+                
+                // 过滤掉不在用户选择日期范围内的分组
+                if (startDate && endDate) {
+                    const userStartDate = new Date(startDate);
+                    const userEndDate = new Date(endDate);
+                    
+                    // 获取用户选择范围内的日期边界（日期格式：YYYY-MM-DD）
+                    const userStartKey = this.cycleEngine.formatDate(userStartDate);
+                    const userEndKey = this.cycleEngine.formatDate(userEndDate);
+                    
+                    console.log(`🔍 用户选择的日期范围: ${userStartKey} 至 ${userEndKey}`);
+                    
+                    // 只保留分组键在用户选择范围内的分组
+                    const filteredStats = statsArray.filter(stat => {
+                        const groupKey = stat.key;
+                        const isInRange = groupKey >= userStartKey && groupKey <= userEndKey;
+                        
+                        if (!isInRange) {
+                            console.log(`🚫 过滤掉边界外分组: ${groupKey}`);
+                        }
+                        
+                        return isInRange;
+                    });
+                    
+                    statsArray = filteredStats;
+                    console.log(`✅ 过滤后剩余 ${statsArray.length} 个分组`);
+                }
                 
                 // 计算每个周期的失败次数和成功率 - 使用计划ID总数作为分母
                 statsArray.forEach(stat => {
