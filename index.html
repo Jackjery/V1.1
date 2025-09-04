@@ -131,12 +131,12 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">统计开始日期（文件时间）</label>
                     <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md">
-                    <p class="text-xs text-gray-500 mt-1">实际从所选日期的周期起始时间开始（基于文件时间）</p>
+                    <p class="text-xs text-gray-500 mt-1">从所选日期的齿轮设置时间开始统计</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">统计结束日期（文件时间）</label>
                     <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md">
-                    <p class="text-xs text-gray-500 mt-1">实际到所选日期的周期起始时间结束（基于文件时间）</p>
+                    <p class="text-xs text-gray-500 mt-1">统计到所选日期+1日的齿轮设置时间（包含所选日期的完整周期）</p>
                 </div>
             </div>
 
@@ -1552,27 +1552,55 @@
             computeDateRangeForGroup(groupType, startDateStr, endDateStr) {
                 let startBound = null;
                 let endBound = null;
-                const makeMidday = (dateStr) => {
+                
+                // 获取当前分组类型的时间配置
+                const getGroupTimeConfig = (groupType) => {
+                    const config = this.cycleEngine.config;
+                    switch (groupType) {
+                        case 'day':
+                            return this.cycleEngine.parseTimeToHoursMinutes(config.day.start);
+                        case 'week':
+                            return this.cycleEngine.parseTimeToHoursMinutes(config.week.startTime);
+                        case 'month':
+                            return this.cycleEngine.parseTimeToHoursMinutes(config.month.startTime);
+                        case 'quarter':
+                            return this.cycleEngine.parseTimeToHoursMinutes(config.quarter.startTime);
+                        default:
+                            return { hours: 0, minutes: 0 };
+                    }
+                };
+                
+                const timeConfig = getGroupTimeConfig(groupType);
+                console.log(`🔧 使用 ${groupType} 分组的时间配置: ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')}`);
+                
+                const makeDateWithGroupTime = (dateStr) => {
                     if (!dateStr) return null;
                     const parts = dateStr.split('-').map(Number);
-                    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0);
+                    return new Date(parts[0], parts[1] - 1, parts[2], timeConfig.hours, timeConfig.minutes, 0, 0);
                 };
 
                 try {
                     if (startDateStr) {
-                        const midStart = makeMidday(startDateStr);
-                        const gStart = this.cycleEngine.getGroup(midStart, groupType);
-                        startBound = gStart.rangeStart;
+                        // 用户选择的开始日期 + 分组起始时间
+                        startBound = makeDateWithGroupTime(startDateStr);
+                        console.log(`🔍 开始时间边界: ${startDateStr} ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')} -> ${startBound.toLocaleString()}`);
                     }
                     if (endDateStr) {
-                        const midEnd = makeMidday(endDateStr);
-                        const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
-                        endBound = new Date(gEnd.rangeEnd.getTime() - 1);
+                        // 用户选择的结束日期 + 1天 + 分组起始时间
+                        // 因为要统计到结束日期组，需要包含结束日期YY:YY到结束日期+1天YY:YY的数据
+                        const endDateParts = endDateStr.split('-').map(Number);
+                        const endDatePlusOne = new Date(endDateParts[0], endDateParts[1] - 1, endDateParts[2] + 1, timeConfig.hours, timeConfig.minutes, 0, 0);
+                        endBound = endDatePlusOne;
+                        console.log(`🔍 结束时间边界: ${endDateStr}+1日 ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')} -> ${endBound.toLocaleString()}`);
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到本地解析', err);
-                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
-                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 23, 59, 59, 999);
+                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, timeConfig.hours, timeConfig.minutes, 0, 0);
+                    if (endDateStr) {
+                        // 结束日期+1天的分组起始时间
+                        const endDateParts = endDateStr.split('-').map(Number);
+                        endBound = new Date(endDateParts[0], endDateParts[1] - 1, endDateParts[2] + 1, timeConfig.hours, timeConfig.minutes, 0, 0);
+                    }
                 }
 
                 return { startDate: startBound, endDate: endBound };
