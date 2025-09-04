@@ -646,14 +646,14 @@
                             let startTime, endTime;
                             
                             if (filters.startDate) {
-                                // 解析开始日期为本地时间00:00:00
-                                startTime = this.parseLocalDateToTimestamp(filters.startDate, 0, 0, 0);
+                                // 解析开始日期为本地时间08:00:00（修复时区偏移问题）
+                                startTime = this.parseLocalDateToTimestamp(filters.startDate, 8, 0, 0);
                                 console.log(`🔍 筛选开始时间: ${filters.startDate} -> ${new Date(startTime).toLocaleString()}`);
                             }
                             
                             if (filters.endDate) {
-                                // 解析结束日期为本地时间23:59:59.999
-                                endTime = this.parseLocalDateToTimestamp(filters.endDate, 23, 59, 59, 999);
+                                // 解析结束日期为本地时间08:00:00（修复时区偏移问题）
+                                endTime = this.parseLocalDateToTimestamp(filters.endDate, 8, 0, 0);
                                 console.log(`🔍 筛选结束时间: ${filters.endDate} -> ${new Date(endTime).toLocaleString()}`);
                             }
                             
@@ -1571,8 +1571,8 @@
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到本地解析', err);
-                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
-                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 23, 59, 59, 999);
+                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 8, 0, 0, 0);
+                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 8, 0, 0, 0);
                 }
 
                 return { startDate: startBound, endDate: endBound };
