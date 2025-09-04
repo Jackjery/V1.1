@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
-    <script src="lib/api-client.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 
     <!-- Tailwind 配置 -->
     <script>
@@ -162,9 +162,17 @@
                     <input type="datetime-local" id="endDateTime" class="filter-select">
                 </div>
                 <div class="flex items-end">
-                    <button id="applyFilters" class="w-full px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors">
-                        应用筛选
-                    </button>
+                    <div class="w-full">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center">
+                                <input type="checkbox" id="showDataLabels" class="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded">
+                                <label for="showDataLabels" class="text-sm text-gray-700">显示数据标签</label>
+                            </div>
+                        </div>
+                        <button id="applyFilters" class="w-full px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition-colors">
+                            应用筛选
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -431,6 +439,158 @@
             '开始时间': '开始时间'
         };
 
+        // ==================== IndexedDB缓存管理器（从index.html复制） ====================
+        
+        // IndexedDB缓存管理器
+        class CacheManager {
+            constructor() {
+                this.dbName = 'SatelliteDataCache';
+                this.dbVersion = 3;
+                this.allDataStoreName = 'allDataCache';
+                this.metaStoreName = 'metaData';
+                this.db = null;
+                // 移除缓存过期时间，始终使用本地缓存
+                this.cacheExpiry = Infinity; 
+            }
+
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.dbVersion);
+
+                    request.onerror = () => {
+                        console.error('❌ IndexedDB初始化失败:', request.error);
+                        reject(request.error);
+                    };
+
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        console.log('✅ IndexedDB初始化成功');
+                        resolve(this.db);
+                    };
+
+                    request.onupgradeneeded = (event) => {
+                        this.db = event.target.result;
+                        console.log('🔧 升级IndexedDB结构...');
+
+                        // 全数据存储空间
+                        if (!this.db.objectStoreNames.contains(this.allDataStoreName)) {
+                            const allDataStore = this.db.createObjectStore(this.allDataStoreName, { keyPath: 'id' });
+                            allDataStore.createIndex('timestamp', 'timestamp', { unique: false });
+                            allDataStore.createIndex('start_time', 'start_time', { unique: false });
+                            console.log('📦 创建全数据存储空间');
+                        }
+
+                        // 元数据存储空间
+                        if (!this.db.objectStoreNames.contains(this.metaStoreName)) {
+                            const metaStore = this.db.createObjectStore(this.metaStoreName, { keyPath: 'key' });
+                            console.log('📦 创建元数据存储空间');
+                        }
+                    };
+                });
+            }
+
+            // 从本地缓存查询数据（支持时间范围筛选）
+            async queryAllData(filters = {}) {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.allDataStoreName], 'readonly');
+                    const store = transaction.objectStore(this.allDataStoreName);
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        let results = request.result || [];
+                        
+                        // 应用时间范围过滤（严格使用北京时间，不进行时区转换）
+                        if (filters.startDate || filters.endDate) {
+                            let startTime, endTime;
+                            
+                            if (filters.startDate) {
+                                startTime = new Date(filters.startDate).getTime();
+                                console.log(`🔍 筛选开始时间: ${filters.startDate} -> ${new Date(startTime).toLocaleString()}`);
+                            }
+                            
+                            if (filters.endDate) {
+                                endTime = new Date(filters.endDate).getTime();
+                                console.log(`🔍 筛选结束时间: ${filters.endDate} -> ${new Date(endTime).toLocaleString()}`);
+                            }
+                            
+                            const beforeFilter = results.length;
+                            results = results.filter(record => {
+                                const recordTime = record.timestamp || this.parseTimeToTimestamp(record.start_time);
+                                
+                                if (filters.startDate && recordTime < startTime) return false;
+                                if (filters.endDate && recordTime > endTime) return false;
+                                
+                                return true;
+                            });
+                            
+                            console.log(`🔍 时间筛选: ${beforeFilter} -> ${results.length} 条数据`);
+                        }
+                        
+                        console.log(`🔍 从本地缓存查询到 ${results.length} 条数据`);
+                        resolve(results);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 查询本地缓存失败:', request.error);
+                        resolve([]);
+                    };
+                });
+            }
+
+            // 解析各种时间格式为时间戳（严格使用北京时间，不进行时区转换）
+            parseTimeToTimestamp(timeValue) {
+                if (typeof timeValue === 'number') {
+                    return timeValue > 1000000000000 ? timeValue : timeValue * 1000;
+                }
+                
+                if (typeof timeValue === 'string') {
+                    // 直接使用北京时间解析，不进行时区转换
+                    const date = new Date(timeValue);
+                    return isNaN(date.getTime()) ? 0 : date.getTime();
+                }
+                
+                if (timeValue instanceof Date) {
+                    return timeValue.getTime();
+                }
+                
+                return 0;
+            }
+
+            // 检查全数据缓存是否存在
+            async checkAllDataCache() {
+                if (!this.db) await this.init();
+                
+                return new Promise((resolve) => {
+                    const transaction = this.db.transaction([this.metaStoreName], 'readonly');
+                    const store = transaction.objectStore(this.metaStoreName);
+                    const request = store.get('allDataMeta');
+
+                    request.onsuccess = () => {
+                        const meta = request.result;
+                        
+                        if (!meta) {
+                            console.log('🔍 本地缓存不存在');
+                            resolve(null);
+                            return;
+                        }
+                        
+                        console.log(`✅ 本地缓存存在，包含 ${meta.totalCount} 条记录，最后更新：${new Date(meta.lastUpdated).toLocaleString()}`);
+                        resolve(meta);
+                    };
+
+                    request.onerror = () => {
+                        console.error('❌ 检查本地缓存失败:', request.error);
+                        resolve(null);
+                    };
+                });
+            }
+        }
+
+        // 创建全局缓存管理器实例
+        const cacheManager = new CacheManager();
+
         // 使用API客户端替代IndexedDB
         // SatelliteDB类已在api-client.js中定义
 
@@ -465,6 +625,9 @@
                 if (!ctxEl) return null;
                 const ctx = ctxEl.getContext('2d');
                 const emptyState = document.getElementById(`${chartId}Empty`);
+                
+                // 检查是否显示数据标签
+                const showLabels = document.getElementById('showDataLabels')?.checked || false;
 
                 const hasData = data && data.some(v => v > 0);
                 if (!hasData) {
@@ -499,6 +662,9 @@
                     optimizedData = topSlices.map(item => item.value);
                 }
 
+                // 注册数据标签插件
+                Chart.register(ChartDataLabels);
+
                 const chart = new Chart(ctx, {
                     type: 'pie',
                     data: {
@@ -507,13 +673,30 @@
                             data: optimizedData,
                             backgroundColor: this.colors.slice(0, optimizedLabels.length),
                             borderWidth: 1,
-                            borderColor: '#ffffff'
+                            borderColor: '#ffffff',
+                            datalabels: {
+                                display: showLabels,
+                                color: '#ffffff',
+                                font: {
+                                    size: 12,
+                                    weight: 'bold'
+                                },
+                                formatter: function(value, context) {
+                                    if (!showLabels || value <= 0) return '';
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${value}\n(${percentage}%)`;
+                                }
+                            }
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
+                            datalabels: {
+                                display: showLabels
+                            },
                             title: {
                                 display: true,
                                 text: title + (labels.length > this.maxSlices ? ' (已合并显示)' : ''),
@@ -568,6 +751,9 @@
                 if (!ctxEl) return null;
                 const ctx = ctxEl.getContext('2d');
                 const emptyState = document.getElementById(`${chartId}Empty`);
+                
+                // 检查是否显示数据标签
+                const showLabels = document.getElementById('showDataLabels')?.checked || false;
 
                 const hasData = datasets && datasets.some(dataset => dataset.data.some(v => v > 0));
                 if (!hasData) {
@@ -610,10 +796,26 @@
                     data: dataset.data,
                     backgroundColor: this.colors[i % this.colors.length] + '80',
                     borderColor: this.colors[i % this.colors.length],
-                    borderWidth: 1
+                    borderWidth: 1,
+                    datalabels: {
+                        display: showLabels && !isLargeDataset,
+                        color: this.colors[i % this.colors.length],
+                        anchor: 'end',
+                        align: 'top',
+                        font: {
+                            size: 10,
+                            weight: 'bold'
+                        },
+                        formatter: function(value) {
+                            return value > 0 ? value : '';
+                        }
+                    }
                 }));
 
                 const isLargeDataset = optimizedLabels.length > 15;
+
+                // 注册数据标签插件
+                Chart.register(ChartDataLabels);
 
                 const chart = new Chart(ctx, {
                     type: 'bar',
@@ -625,6 +827,9 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
+                            datalabels: {
+                                display: showLabels && !isLargeDataset
+                            },
                             title: {
                                 display: true,
                                 text: title + (labels.length > this.maxBars ? ' (显示前N项)' : ''),
@@ -808,7 +1013,7 @@
         // 主应用类
         class DataDistributionApp {
             constructor() {
-                this.db = new SatelliteDB();
+                this.cacheManager = cacheManager;
                 this.chartGenerator = new ChartGenerator();
 
                 // 应用状态
@@ -837,6 +1042,21 @@
                 // 应用筛选按钮
                 const applyBtn = document.getElementById('applyFilters');
                 if (applyBtn) applyBtn.addEventListener('click', () => this.applyFilters());
+
+                // 数据标签显示切换事件
+                const showDataLabelsCheckbox = document.getElementById('showDataLabels');
+                if (showDataLabelsCheckbox) {
+                    showDataLabelsCheckbox.addEventListener('change', () => {
+                        if (this.filteredData && this.filteredData.length > 0) {
+                            // 重新生成所有图表
+                            this.generateCustomerPieChart();
+                            this.generateCustomerBarChart();
+                            this.generateStationBarChart();
+                            this.updateCustomerSatelliteChart();
+                            this.updateCustomerStationPreferenceCharts();
+                        }
+                    });
+                }
 
                 // 客户下拉选择相关
                 const cdd = document.getElementById('customerSelectDropdown');
@@ -1077,28 +1297,23 @@
                 if (dbLoading) dbLoading.classList.remove('hidden');
 
                 try {
-                    if (!await this.db.hasData()) {
+                    // 检查本地缓存是否存在
+                    const cacheExists = await this.cacheManager.checkAllDataCache();
+                    
+                    if (!cacheExists) {
                         if (dbLoading) dbLoading.classList.add('hidden');
                         document.getElementById('noDataAlert').classList.remove('hidden');
                         return;
                     }
 
-                    // 获取当前设置的时间范围
-                    const startDate = document.getElementById('startDate')?.value;
-                    const endDate = document.getElementById('endDate')?.value;
+                    console.log('📍 从本地缓存加载数据...');
+
+                    // 从本地缓存获取所有数据
+                    const records = await this.cacheManager.queryAllData();
                     
-                    // 加载原始数据
-                    const rawData = await this.db.getAllDataWithProgress((p) => {
-                        document.getElementById('loadingProgress').style.width = `${p}%`;
-                    }, {
-                        startDate,
-                        endDate
-                    });
+                    this.data = records || [];
 
-                    this.rawData = rawData;
-
-                    // 提取嵌套数据
-                    this.data = rawData[0]?.data || [];
+                    console.log(`✅ 加载了 ${this.data.length} 条记录`);
 
                     // 显示内容区域
                     if (dbLoading) dbLoading.classList.add('hidden');
@@ -1121,6 +1336,12 @@
                 } catch (error) {
                     if (dbLoading) dbLoading.classList.add('hidden');
                     console.error('加载数据失败:', error);
+                    
+                    // 显示无数据提示
+                    const noDataAlert = document.getElementById('noDataAlert');
+                    if (noDataAlert) {
+                        noDataAlert.classList.remove('hidden');
+                    }
                 }
             }
 
