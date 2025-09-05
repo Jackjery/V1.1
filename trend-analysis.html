@@ -1017,7 +1017,12 @@
                 this.lineStyles = ['solid', 'dashed', 'dotted'];
                 
                 // 注册数据标签插件（参考index.html）
-                Chart.register(ChartDataLabels);
+                if (typeof ChartDataLabels !== 'undefined') {
+                    Chart.register(ChartDataLabels);
+                    console.log('ChartDataLabels plugin registered successfully');
+                } else {
+                    console.error('ChartDataLabels plugin not found');
+                }
             }
 
             destroyChart(chartId) {
@@ -1031,7 +1036,10 @@
             // 切换数据标签显示状态（完全参考index.html实现）
             toggleDataLabels(chartId) {
                 const chart = this.charts[chartId];
-                if (!chart) return false;
+                if (!chart) {
+                    console.error(`Chart ${chartId} not found`);
+                    return false;
+                }
 
                 const currentState = this.labelsVisible[chartId] || false;
                 const newState = !currentState;
@@ -1043,19 +1051,19 @@
                 chart.data.datasets.forEach((dataset, index) => {
                     if (dataset.datalabels) {
                         dataset.datalabels.display = newState;
-                        console.log(`Dataset ${index} datalabels.display set to: ${newState}`);
+                        console.log(`Dataset ${index} (${dataset.label}) datalabels.display set to: ${newState}`);
+                    } else {
+                        console.warn(`Dataset ${index} (${dataset.label}) has no datalabels config`);
                     }
                 });
                 
-                // 也更新全局配置（参考index.html的全局配置）
-                if (chart.options.plugins.datalabels) {
-                    chart.options.plugins.datalabels.display = newState;
-                    console.log(`Global datalabels.display set to: ${newState}`);
-                }
-                
                 // 使用'none'模式实现即时更新（与index.html完全一致）
-                chart.update('none');
-                console.log(`Chart ${chartId} updated`);
+                try {
+                    chart.update('none');
+                    console.log(`Chart ${chartId} updated successfully`);
+                } catch (error) {
+                    console.error(`Error updating chart ${chartId}:`, error);
+                }
                 
                 return newState;
             }
@@ -1075,6 +1083,12 @@
                 
                 // 初始化数据标签状态为隐藏
                 this.labelsVisible[chartId] = false;
+                console.log(`Creating chart ${chartId} with ${datasets.length} datasets`);
+                
+                // 验证数据集
+                datasets.forEach((dataset, i) => {
+                    console.log(`Dataset ${i}: ${dataset.label}, data points: ${dataset.data.length}`);
+                });
 
                 // 曲线图样式配置
                 const styledDatasets = datasets.map((dataset, i) => ({
@@ -1097,12 +1111,12 @@
                         display: false, // 初始状态下隐藏
                         color: this.colors[i % this.colors.length],
                         anchor: 'end',
-                        align: i % 2 === 0 ? 'top' : 'bottom', // 交替显示在上方和下方
+                        align: i % 2 === 0 ? 'top' : 'bottom', // 静态值，不是函数
                         font: {
                             size: 10,
                             weight: 'bold'
                         }
-                        // 不需要formatter，使用默认的数值显示
+                        // 移除formatter，使用默认显示
                     }
                 }));
 
