@@ -1015,6 +1015,9 @@
                     '#3182CE', '#805AD5', '#ED8936', '#ECC94B', '#6B46C1'
                 ];
                 this.lineStyles = ['solid', 'dashed', 'dotted'];
+                
+                // 注册数据标签插件（参考index.html）
+                Chart.register(ChartDataLabels);
             }
 
             destroyChart(chartId) {
@@ -1025,79 +1028,29 @@
                 }
             }
 
-            // 切换数据标签显示状态
+            // 切换数据标签显示状态（参考index.html实现）
             toggleDataLabels(chartId) {
                 const chart = this.charts[chartId];
                 if (!chart) return;
 
                 const currentState = this.labelsVisible[chartId] || false;
-                this.labelsVisible[chartId] = !currentState;
+                const newState = !currentState;
+                this.labelsVisible[chartId] = newState;
 
-                if (!currentState) {
-                    // 显示数据标签 - 直接更新每个数据集的配置
-                    chart.data.datasets.forEach((dataset, datasetIndex) => {
-                        dataset.datalabels = {
-                            display: true,
-                            anchor: 'end',
-                            align: function(context) {
-                                const value = context.parsed.y;
-                                // 交替显示在上方和下方，避免重叠
-                                if (datasetIndex % 2 === 0) {
-                                    return value > 5 ? 'top' : 'bottom';
-                                } else {
-                                    return value > 5 ? 'bottom' : 'top';
-                                }
-                            },
-                            offset: 6,
-                            color: dataset.borderColor,
-                            backgroundColor: function(context) {
-                                return context.parsed.y === 0 ? 'rgba(245, 245, 245, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-                            },
-                            borderColor: dataset.borderColor,
-                            borderWidth: 1,
-                            borderRadius: 4,
-                            padding: {
-                                top: 3,
-                                right: 5,
-                                bottom: 3,
-                                left: 5
-                            },
-                            font: {
-                                size: function(context) {
-                                    return context.parsed.y === 0 ? 9 : 11;
-                                },
-                                weight: function(context) {
-                                    return context.parsed.y === 0 ? 'normal' : 'bold';
-                                },
-                                family: 'system-ui, -apple-system, sans-serif'
-                            },
-                            formatter: function(value) {
-                                return value.toString();
-                            }
-                        };
-                    });
-                    
-                    // 确保全局配置也开启
-                    chart.options.plugins.datalabels = {
-                        display: true
-                    };
-                } else {
-                    // 隐藏数据标签
-                    chart.data.datasets.forEach((dataset) => {
-                        dataset.datalabels = {
-                            display: false
-                        };
-                    });
-                    
-                    chart.options.plugins.datalabels = {
-                        display: false
-                    };
-                }
-
-                // 重新渲染图表
-                chart.update();
+                // 直接更新每个数据集的datalabels.display属性
+                chart.data.datasets.forEach((dataset) => {
+                    if (dataset.datalabels) {
+                        dataset.datalabels.display = newState;
+                    }
+                });
                 
-                return !currentState;
+                // 更新全局插件配置
+                chart.options.plugins.datalabels.display = newState;
+                
+                // 使用'none'模式实现即时更新（参考index.html）
+                chart.update('none');
+                
+                return newState;
             }
 
             generateTrendChart(chartId, title, xLabels, datasets) {
@@ -1132,15 +1085,22 @@
                     pointHoverRadius: 6,
                     pointBorderWidth: 2,
                     pointBorderColor: this.colors[i % this.colors.length],
-                    // 初始状态下隐藏数据标签
+                    // 参考index.html的数据标签配置
                     datalabels: {
-                        display: false
+                        display: false, // 初始状态下隐藏
+                        color: this.colors[i % this.colors.length],
+                        anchor: 'end',
+                        align: i % 2 === 0 ? 'top' : 'bottom', // 交替显示在上方和下方
+                        font: {
+                            size: 10,
+                            weight: 'bold'
+                        },
+                        formatter: function(value) {
+                            return value.toString();
+                        }
                     }
                 }));
 
-                // 确保插件全局注册
-                Chart.register(ChartDataLabels);
-                
                 const chart = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -1202,7 +1162,7 @@
                                     return b.raw - a.raw;
                                 }
                             },
-                            // 全局datalabels配置（默认关闭）
+                            // 全局datalabels配置（参考index.html）
                             datalabels: {
                                 display: false
                             }
