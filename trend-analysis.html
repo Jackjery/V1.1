@@ -1028,27 +1028,34 @@
                 }
             }
 
-            // 切换数据标签显示状态（参考index.html实现）
+            // 切换数据标签显示状态（完全参考index.html实现）
             toggleDataLabels(chartId) {
                 const chart = this.charts[chartId];
-                if (!chart) return;
+                if (!chart) return false;
 
                 const currentState = this.labelsVisible[chartId] || false;
                 const newState = !currentState;
                 this.labelsVisible[chartId] = newState;
 
-                // 直接更新每个数据集的datalabels.display属性
-                chart.data.datasets.forEach((dataset) => {
+                console.log(`Toggling data labels for ${chartId}: ${currentState} -> ${newState}`);
+
+                // 完全按照index.html的方式：更新数据集的datalabels.display属性
+                chart.data.datasets.forEach((dataset, index) => {
                     if (dataset.datalabels) {
                         dataset.datalabels.display = newState;
+                        console.log(`Dataset ${index} datalabels.display set to: ${newState}`);
                     }
                 });
                 
-                // 更新全局插件配置
-                chart.options.plugins.datalabels.display = newState;
+                // 也更新全局配置（参考index.html的全局配置）
+                if (chart.options.plugins.datalabels) {
+                    chart.options.plugins.datalabels.display = newState;
+                    console.log(`Global datalabels.display set to: ${newState}`);
+                }
                 
-                // 使用'none'模式实现即时更新（参考index.html）
+                // 使用'none'模式实现即时更新（与index.html完全一致）
                 chart.update('none');
+                console.log(`Chart ${chartId} updated`);
                 
                 return newState;
             }
@@ -1085,7 +1092,7 @@
                     pointHoverRadius: 6,
                     pointBorderWidth: 2,
                     pointBorderColor: this.colors[i % this.colors.length],
-                    // 参考index.html的数据标签配置
+                    // 完全参考index.html的数据标签配置
                     datalabels: {
                         display: false, // 初始状态下隐藏
                         color: this.colors[i % this.colors.length],
@@ -1094,10 +1101,8 @@
                         font: {
                             size: 10,
                             weight: 'bold'
-                        },
-                        formatter: function(value) {
-                            return value.toString();
                         }
+                        // 不需要formatter，使用默认的数值显示
                     }
                 }));
 
@@ -1162,9 +1167,9 @@
                                     return b.raw - a.raw;
                                 }
                             },
-                            // 全局datalabels配置（参考index.html）
+                            // 全局datalabels配置（完全参考index.html）
                             datalabels: {
-                                display: false
+                                display: false // 初始状态为false
                             }
                         },
                         scales: {
