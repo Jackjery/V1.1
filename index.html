@@ -1874,9 +1874,11 @@
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
                 
-                console.log(`🚀 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
-                console.log(`🔧 当前周期配置:`, this.cycleEngine.config);
-                console.log(`📊 输入数据总数: ${this.data.length} 条`);
+                // 🚨 调试：添加唯一标识符追踪每次调用
+                const callId = Math.random().toString(36).substr(2, 9);
+                console.log(`🚀 [${callId}] 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
+                console.log(`🔧 [${callId}] 当前周期配置:`, this.cycleEngine.config);
+                console.log(`📊 [${callId}] 输入数据总数: ${this.data.length} 条`);
                 
                 // 调试已移除：配置传递验证通过
                 
@@ -1891,7 +1893,7 @@
                     allPlanIds.add(planId);
                     planIdCounts.set(planId, (planIdCounts.get(planId) || 0) + 1);
                 });
-                console.log(`🔍 数据中唯一计划ID数: ${allPlanIds.size} 个`);
+                console.log(`🔍 [${callId}] 数据中唯一计划ID数: ${allPlanIds.size} 个`);
                 
                 // 检查重复的计划ID
                 const duplicatePlanIds = Array.from(planIdCounts.entries()).filter(([id, count]) => count > 1);
@@ -1990,12 +1992,12 @@
                     stat.successRate = this.taskAnalyzer.calculateSuccessRate(stat.results, stat.count);
                 });
 
-                console.log(`📈 时间范围内数据: ${dataInRange} 条, 过滤掉: ${filteredByTimeCount} 条`);
-                console.log(`📊 最终分组数: ${statsArray.length} 个`);
+                console.log(`📈 [${callId}] 时间范围内数据: ${dataInRange} 条, 过滤掉: ${filteredByTimeCount} 条`);
+                console.log(`📊 [${callId}] 最终分组数: ${statsArray.length} 个`);
                 
                 // 打印各组的计数
                 statsArray.forEach(stat => {
-                    console.log(`📋 ${stat.key}组: ${stat.count}个计划ID, ${stat.failureCount}个失败, ${stat.successRate.toFixed(1)}%成功率`);
+                    console.log(`📋 [${callId}] ${stat.key}组: ${stat.count}个计划ID, ${stat.failureCount}个失败, ${stat.successRate.toFixed(1)}%成功率`);
                 });
 
                 return statsArray;
