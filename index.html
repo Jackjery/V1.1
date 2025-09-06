@@ -1265,6 +1265,16 @@
                     targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate() - 1);
                     cycleStart = new Date(todayStartPoint.getTime() - 24 * 60 * 60 * 1000);
                 }
+                
+                // 🚨 关键调试：针对特定时间点的分组决策
+                if (fileDate.getFullYear() === 2025 && fileDate.getMonth() === 0 && fileDate.getDate() === 1 && fileDate.getHours() === 0 && fileDate.getMinutes() === 0) {
+                    console.log(`🔍 getDayGroup调试[2025-01-01 00:00]: 
+                        配置=${dayConfig.start}
+                        todayStartPoint=${todayStartPoint.toLocaleString()}
+                        isPastStartPoint=${isPastStartPoint}
+                        cycleStart=${cycleStart.toLocaleString()}
+                        key=${this.formatDate(targetDate)}`);
+                }
 
                 // 周期结束时间 = 周期起始时间 + 1天
                 const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
