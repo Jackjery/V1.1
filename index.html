@@ -1233,6 +1233,8 @@
             getDayGroup(date) {
                 const dayConfig = this.config.day;
                 const { hours, minutes } = this.parseTimeToHoursMinutes(dayConfig.start);
+                
+                // 调试已移除：getDayGroup配置验证通过
 
                 // 创建严格的文件时间对象，不考虑浏览器时区
                 const fileDate = this.createFileDate(date);
@@ -1477,13 +1479,23 @@
             
             // 修复：添加缺失的 updateConfig 方法
             updateConfig(newConfig) {
-                console.log('🔄 CycleRuleEngine.updateConfig: 更新配置', newConfig);
-                this.config = {
-                    day: newConfig.day || this.config.day,
-                    week: newConfig.week || this.config.week,
-                    month: newConfig.month || this.config.month,
-                    quarter: newConfig.quarter || this.config.quarter
-                };
+                console.log('🔄 CycleRuleEngine.updateConfig: 更新前配置', this.config);
+                console.log('🔄 CycleRuleEngine.updateConfig: 新配置', newConfig);
+                
+                // 深度合并配置，避免 falsy 值被忽略
+                if (newConfig.day) {
+                    this.config.day = { ...this.config.day, ...newConfig.day };
+                }
+                if (newConfig.week) {
+                    this.config.week = { ...this.config.week, ...newConfig.week };
+                }
+                if (newConfig.month) {
+                    this.config.month = { ...this.config.month, ...newConfig.month };
+                }
+                if (newConfig.quarter) {
+                    this.config.quarter = { ...this.config.quarter, ...newConfig.quarter };
+                }
+                
                 console.log('✅ CycleRuleEngine.updateConfig: 配置已更新', this.config);
             }
         }
@@ -1859,6 +1871,8 @@
                 console.log(`🚀 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
                 console.log(`🔧 当前周期配置:`, this.cycleEngine.config);
                 console.log(`📊 输入数据总数: ${this.data.length} 条`);
+                
+                // 调试已移除：配置传递验证通过
                 
                 // 统计时间范围内的数据
                 let dataInRange = 0;
