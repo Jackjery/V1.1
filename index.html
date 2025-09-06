@@ -1411,7 +1411,15 @@
 
             bindEvents() {
                 if (this.generateChart) this.generateChart.addEventListener('click', () => this.generateStatistics());
-                if (this.configGroupingBtn) this.configGroupingBtn.addEventListener('click', () => this.openGroupingConfig());
+                if (this.configGroupingBtn) {
+                    console.log('✅ 齿轮按钮找到，绑定点击事件');
+                    this.configGroupingBtn.addEventListener('click', () => {
+                        console.log('🔧 齿轮按钮被点击');
+                        this.openGroupingConfig();
+                    });
+                } else {
+                    console.error('❌ 齿轮按钮未找到: configGroupingBtn');
+                }
                 if (this.closeConfigModal) this.closeConfigModal.addEventListener('click', () => this.closeGroupingConfig());
                 if (this.saveGroupingConfig) this.saveGroupingConfig.addEventListener('click', () => this.saveGroupingConfiguration());
                 if (this.showDataLabels) this.showDataLabels.addEventListener('change', () => this.toggleDataLabels());
@@ -1981,12 +1989,28 @@
             }
 
             openGroupingConfig() {
+                console.log('🚀 openGroupingConfig 被调用');
+                console.log('📋 groupingConfigModal:', this.groupingConfigModal);
+                console.log('📋 modalContent:', this.modalContent);
+                
                 this.updateGroupingConfigForm();
-                this.groupingConfigModal.classList.remove('hidden');
-                setTimeout(() => {
-                    this.modalContent.classList.remove('scale-95', 'opacity-0');
-                    this.modalContent.classList.add('scale-100', 'opacity-100');
-                }, 10);
+                
+                if (this.groupingConfigModal) {
+                    this.groupingConfigModal.classList.remove('hidden');
+                    console.log('✅ 模态框显示');
+                    
+                    setTimeout(() => {
+                        if (this.modalContent) {
+                            this.modalContent.classList.remove('scale-95', 'opacity-0');
+                            this.modalContent.classList.add('scale-100', 'opacity-100');
+                            console.log('✅ 模态框动画完成');
+                        } else {
+                            console.error('❌ modalContent 未找到');
+                        }
+                    }, 10);
+                } else {
+                    console.error('❌ groupingConfigModal 未找到');
+                }
             }
 
             closeGroupingConfig() {
