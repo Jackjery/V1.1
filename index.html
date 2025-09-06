@@ -1863,10 +1863,10 @@
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
                             // 字符串日期，按文件时间解析
-                            date = new Date(timeValue);
+                            date = this.cycleEngine.createFileDate(new Date(timeValue));
                         } else if (typeof timeValue === 'number') {
                             // Excel日期数字，转换为文件时间
-                            date = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
                         } else {
                             console.warn('无法解析时间:', item);
                             return;
@@ -2284,9 +2284,9 @@
                             if (timeValue instanceof Date) {
                                 date = this.cycleEngine.createFileDate(timeValue);
                             } else if (typeof timeValue === 'string') {
-                                date = new Date(timeValue);
+                                date = this.cycleEngine.createFileDate(new Date(timeValue));
                             } else if (typeof timeValue === 'number') {
-                                date = new Date((timeValue - 25569) * 86400000);
+                                date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
                             } else {
                                 return;
                             }
@@ -2610,9 +2610,9 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = new Date(timeValue);
+                            date = this.cycleEngine.createFileDate(new Date(timeValue));
                         } else if (typeof timeValue === 'number') {
-                            date = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
                         } else {
                             return;
                         }
@@ -2676,9 +2676,9 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = new Date(timeValue);
+                            date = this.cycleEngine.createFileDate(new Date(timeValue));
                         } else if (typeof timeValue === 'number') {
-                            date = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
                         } else {
                             return;
                         }
