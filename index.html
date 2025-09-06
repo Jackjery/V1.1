@@ -1851,6 +1851,11 @@
                         // 获取周期组信息（基于文件时间）
                         const groupInfo = this.cycleEngine.getGroup(date, groupType);
                         
+                        // 调试：打印前几个数据的分组情况
+                        if (processedCount < 3) {
+                            console.log(`🔍 数据项${processedCount}: ${date.toLocaleString()} -> ${groupInfo.key}组 (${groupInfo.rangeStart.toLocaleString()} ~ ${groupInfo.rangeEnd.toLocaleString()})`);
+                        }
+                        
                         // 如果该组不存在，则初始化
                         if (!groups[groupInfo.key]) {
                             groups[groupInfo.key] = {
