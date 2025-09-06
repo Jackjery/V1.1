@@ -1572,6 +1572,10 @@
                 this.cycleEngine = new CycleRuleEngine();
                 this.taskAnalyzer = new TaskResultAnalyzer();
                 this.chart = null;
+                
+                // 加载保存的配置
+                this.loadSavedConfig();
+                
                 this.bindElements();
                 this.bindEvents();
                 this.data = null;
@@ -2388,12 +2392,43 @@
                 
                 console.log('✅ 更新后的配置:', this.cycleEngine.config);
                 
+                // 保存配置到本地存储，确保持久化
+                try {
+                    const cacheData = JSON.parse(localStorage.getItem('satelliteAppData') || '{}');
+                    cacheData.cycleConfig = this.cycleEngine.config;
+                    localStorage.setItem('satelliteAppData', JSON.stringify(cacheData));
+                    console.log('💾 配置已保存到本地存储');
+                } catch (error) {
+                    console.warn('保存配置失败:', error);
+                }
+                
                 // 🚨 重要：配置更新后，重新计算当前显示的统计数据
                 console.log('🔄 配置已更新，重新生成统计...');
                 this.generateStatistics();
                 
                 showSuccess('周期配置已更新，统计数据已刷新');
                 this.closeGroupingConfig();
+            }
+
+            // 加载保存的配置
+            loadSavedConfig() {
+                try {
+                    const cacheData = JSON.parse(localStorage.getItem('satelliteAppData') || '{}');
+                    if (cacheData.cycleConfig) {
+                        console.log('🔧 加载保存的配置:', cacheData.cycleConfig);
+                        this.cycleEngine.updateConfig(cacheData.cycleConfig);
+                        console.log('✅ 配置加载完成:', this.cycleEngine.config);
+                        
+                        // 延迟更新表单显示，确保DOM元素已加载
+                        setTimeout(() => {
+                            if (this.updateGroupingConfigForm) {
+                                this.updateGroupingConfigForm();
+                            }
+                        }, 100);
+                    }
+                } catch (error) {
+                    console.warn('加载配置失败:', error);
+                }
             }
 
             // 新增：显示卫星数量趋势图
