@@ -1703,55 +1703,32 @@
             computeDateRangeForGroup(groupType, startDateStr, endDateStr) {
                 let startBound = null;
                 let endBound = null;
-                
-                // 获取当前分组类型的时间配置
-                const getGroupTimeConfig = (groupType) => {
-                    const config = this.cycleEngine.config;
-                    switch (groupType) {
-                        case 'day':
-                            return this.cycleEngine.parseTimeToHoursMinutes(config.day.start);
-                        case 'week':
-                            return this.cycleEngine.parseTimeToHoursMinutes(config.week.startTime);
-                        case 'month':
-                            return this.cycleEngine.parseTimeToHoursMinutes(config.month.startTime);
-                        case 'quarter':
-                            return this.cycleEngine.parseTimeToHoursMinutes(config.quarter.startTime);
-                        default:
-                            return { hours: 0, minutes: 0 };
-                    }
-                };
-                
-                const timeConfig = getGroupTimeConfig(groupType);
-                console.log(`🔧 使用 ${groupType} 分组的时间配置: ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')}`);
-                
-                const makeDateWithGroupTime = (dateStr) => {
+
+                // Helper: make a midday Date for given yyyy-mm-dd to ensure it falls within the intended group's bucket
+                const makeMidday = (dateStr) => {
                     if (!dateStr) return null;
                     const parts = dateStr.split('-').map(Number);
-                    return new Date(parts[0], parts[1] - 1, parts[2], timeConfig.hours, timeConfig.minutes, 0, 0);
+                    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0); // 12:00 local time
                 };
 
                 try {
                     if (startDateStr) {
-                        // 用户选择的开始日期 + 分组起始时间
-                        startBound = makeDateWithGroupTime(startDateStr);
-                        console.log(`🔍 开始时间边界: ${startDateStr} ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')} -> ${startBound.toLocaleString()}`);
+                        const midStart = makeMidday(startDateStr);
+                        const gStart = this.cycleEngine.getGroup(midStart, groupType);
+                        startBound = gStart.rangeStart;
                     }
+
                     if (endDateStr) {
-                        // 用户选择的结束日期 + 1天 + 分组起始时间
-                        // 因为要统计到结束日期组，需要包含结束日期YY:YY到结束日期+1天YY:YY的数据
-                        const endDateParts = endDateStr.split('-').map(Number);
-                        const endDatePlusOne = new Date(endDateParts[0], endDateParts[1] - 1, endDateParts[2] + 1, timeConfig.hours, timeConfig.minutes, 0, 0);
-                        endBound = endDatePlusOne;
-                        console.log(`🔍 结束时间边界: ${endDateStr}+1日 ${timeConfig.hours}:${String(timeConfig.minutes).padStart(2, '0')} -> ${endBound.toLocaleString()}`);
+                        const midEnd = makeMidday(endDateStr);
+                        const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
+                        // inclusive end bound: group rangeEnd - 1ms so comparisons like date <= endBound work
+                        endBound = new Date(gEnd.rangeEnd.getTime() - 1);
                     }
                 } catch (err) {
-                    console.warn('计算日期范围失败，回退到本地解析', err);
-                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, timeConfig.hours, timeConfig.minutes, 0, 0);
-                    if (endDateStr) {
-                        // 结束日期+1天的分组起始时间
-                        const endDateParts = endDateStr.split('-').map(Number);
-                        endBound = new Date(endDateParts[0], endDateParts[1] - 1, endDateParts[2] + 1, timeConfig.hours, timeConfig.minutes, 0, 0);
-                    }
+                    console.warn('计算日期范围失败，回退到基于本地日历的默认解析', err);
+                    // 退回：按本地午夜/23:59:59.999解析
+                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
+                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 23, 59, 59, 999);
                 }
 
                 return { startDate: startBound, endDate: endBound };
@@ -1776,7 +1753,7 @@
                     const startDate = range.startDate;
                     const endDate = range.endDate;
                     
-                    console.log(`🔍 统计参数: 分组类型=${groupType}, 时间范围=${startDate?.toISOString()} 至 ${endDate?.toISOString()}`);
+                    console.log(`🔍 统计参数: 分组类型=${groupType}, 时间范围=${startDate?.toLocaleString()} 至 ${endDate?.toLocaleString()}`);
                     console.log(`💾 本地缓存数据总数: ${this.data.length} 条`);
 
                     const stats = this.groupDataByCycle(groupType, startDate, endDate);
@@ -1887,32 +1864,7 @@
                     return a.rangeStart - b.rangeStart;
                 });
                 
-                // 过滤掉不在用户选择日期范围内的分组
-                if (startDate && endDate) {
-                    const userStartDate = new Date(startDate);
-                    const userEndDate = new Date(endDate);
-                    
-                    // 获取用户选择范围内的日期边界（日期格式：YYYY-MM-DD）
-                    const userStartKey = this.cycleEngine.formatDate(userStartDate);
-                    const userEndKey = this.cycleEngine.formatDate(userEndDate);
-                    
-                    console.log(`🔍 用户选择的日期范围: ${userStartKey} 至 ${userEndKey}`);
-                    
-                    // 只保留分组键在用户选择范围内的分组
-                    const filteredStats = statsArray.filter(stat => {
-                        const groupKey = stat.key;
-                        const isInRange = groupKey >= userStartKey && groupKey <= userEndKey;
-                        
-                        if (!isInRange) {
-                            console.log(`🚫 过滤掉边界外分组: ${groupKey}`);
-                        }
-                        
-                        return isInRange;
-                    });
-                    
-                    statsArray = filteredStats;
-                    console.log(`✅ 过滤后剩余 ${statsArray.length} 个分组`);
-                }
+                // 注意：不再进行二次过滤，完全依赖于前面的时间边界比较（与index_old.html保持一致）
                 
                 // 计算每个周期的失败次数和成功率 - 使用计划ID总数作为分母
                 statsArray.forEach(stat => {
