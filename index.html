@@ -1816,7 +1816,14 @@
                         const midStart = makeMidday(startDateStr);
                         const gStart = this.cycleEngine.getGroup(midStart, groupType);
                         startBound = gStart.rangeStart;
-                        console.log(`🔸 startDateStr=${startDateStr}, midStart=${midStart?.toLocaleString()}, gStart.rangeStart=${gStart.rangeStart?.toLocaleString()}`);
+                        
+                        // 🚨 修复：对于跨日规则，需要向前扩展边界以包含前一周期的数据
+                        if (groupType === 'day' && this.cycleEngine.config.day.start !== '00:00') {
+                            startBound = new Date(startBound.getTime() - 24 * 60 * 60 * 1000);
+                            console.log(`🔧 跨日规则：开始边界向前扩展24小时到 ${startBound.toLocaleString()}`);
+                        }
+                        
+                        console.log(`🔸 startDateStr=${startDateStr}, midStart=${midStart?.toLocaleString()}, 最终startBound=${startBound?.toLocaleString()}`);
                     }
 
                     if (endDateStr) {
@@ -1824,6 +1831,7 @@
                         const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
                         // inclusive end bound: group rangeEnd - 1ms so comparisons like date <= endBound work
                         endBound = new Date(gEnd.rangeEnd.getTime() - 1);
+                        
                         console.log(`🔸 endDateStr=${endDateStr}, midEnd=${midEnd?.toLocaleString()}, gEnd.rangeEnd=${gEnd.rangeEnd?.toLocaleString()}`);
                     }
                 } catch (err) {
