@@ -1224,21 +1224,34 @@
                 // 创建严格的文件时间对象，不考虑浏览器时区
                 const fileDate = this.createFileDate(date);
 
-                // 创建参考日期：与原始日期同一天的周期起始时间点（文件时间）
-                const referenceStart = this.createFileDate(fileDate);
-                referenceStart.setHours(hours, minutes, 0, 0);
+                // 跨日分组规则：X日YY:YY至X+1日YY:YY的数据计入X日组
+                // 找到文件时间所属的X日（目标日期）
+                let targetDate;
+                
+                if (hours === 0 && minutes === 0) {
+                    // 0点规则：直接使用当天
+                    targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate());
+                } else {
+                    // 非0点规则：需要判断跨日情况
+                    const todayStart = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate(), hours, minutes, 0, 0);
+                    
+                    if (fileDate >= todayStart) {
+                        // 文件时间 >= 今天YY:YY，属于今天的组
+                        targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate());
+                    } else {
+                        // 文件时间 < 今天YY:YY，属于昨天的组（昨天YY:YY到今天YY:YY）
+                        targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate() - 1);
+                    }
+                }
 
-                // 计算周期起始时间（文件时间）
-                const cycleStart = fileDate >= referenceStart
-                    ? new Date(referenceStart)
-                    : new Date(referenceStart.getTime() - 24 * 60 * 60 * 1000);
-
-                // 周期结束时间 = 周期起始时间 + 1天（文件时间）
+                // 计算周期的实际时间范围：X日YY:YY至X+1日YY:YY
+                const cycleStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), hours, minutes, 0, 0);
                 const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
 
-                // 周期标签为周期起始时间的日期（文件时间）
-                const groupDate = new Date(cycleStart);
-                const groupKey = this.formatDate(groupDate);
+                // 组标签显示为X日（目标日期）
+                const groupKey = this.formatDate(targetDate);
+
+                console.log(`📅 跨日分组 [${hours}:${String(minutes).padStart(2, '0')}]: ${fileDate.toLocaleString()} -> ${groupKey}组 (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
 
                 return {
                     key: groupKey,
