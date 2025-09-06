@@ -1474,6 +1474,18 @@
                     default: return this.getDayGroup(dateObj);
                 }
             }
+            
+            // 修复：添加缺失的 updateConfig 方法
+            updateConfig(newConfig) {
+                console.log('🔄 CycleRuleEngine.updateConfig: 更新配置', newConfig);
+                this.config = {
+                    day: newConfig.day || this.config.day,
+                    week: newConfig.week || this.config.week,
+                    month: newConfig.month || this.config.month,
+                    quarter: newConfig.quarter || this.config.quarter
+                };
+                console.log('✅ CycleRuleEngine.updateConfig: 配置已更新', this.config);
+            }
         }
 
         // 错误/成功提示小函数
