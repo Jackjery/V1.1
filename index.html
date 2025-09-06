@@ -2234,22 +2234,63 @@
             updateGroupingConfigForm() {
                 const config = this.cycleEngine.config;
                 
-                // 更新日周期配置
-                this.dayStart.value = config.day.start;
-                this.dayStartDisplay.textContent = config.day.start;
-                this.dayEndDisplay.textContent = config.day.start;
+                // 更新日周期配置 - 修正显示偏移
+                const correctedDayStart = this.correctTimeDisplayForGear(config.day.start);
+                this.dayStart.value = correctedDayStart;
+                this.dayStartDisplay.textContent = correctedDayStart;
+                this.dayEndDisplay.textContent = correctedDayStart;
                 
-                // 更新周周期配置
+                // 更新周周期配置 - 修正显示偏移  
                 this.weekStartDay.value = config.week.startDay;
-                this.weekStartTime.value = config.week.startTime;
+                this.weekStartTime.value = this.correctTimeDisplayForGear(config.week.startTime);
                 
-                // 更新月周期配置
+                // 更新月周期配置 - 修正显示偏移
                 this.monthStartDate.value = config.month.startDate;
-                this.monthStartTime.value = config.month.startTime;
+                this.monthStartTime.value = this.correctTimeDisplayForGear(config.month.startTime);
                 
-                // 更新季度周期配置
+                // 更新季度周期配置 - 修正显示偏移
                 this.quarterStartMonth.value = config.quarter.startMonth;
-                this.quarterStartTime.value = config.quarter.startTime;
+                this.quarterStartTime.value = this.correctTimeDisplayForGear(config.quarter.startTime);
+            }
+
+            // 修正齿轮配置表单的时间显示，消除8小时偏移
+            correctTimeDisplayForGear(timeString) {
+                try {
+                    // 解析时间字符串 HH:mm
+                    const [hours, minutes] = timeString.split(':').map(num => parseInt(num, 10));
+                    
+                    // 减去8小时进行显示修正
+                    let correctedHours = hours - 8;
+                    if (correctedHours < 0) {
+                        correctedHours += 24; // 处理负数情况
+                    }
+                    
+                    // 格式化回字符串
+                    return `${String(correctedHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                } catch (error) {
+                    console.warn('时间格式修正失败:', timeString, error);
+                    return timeString; // 出错时返回原值
+                }
+            }
+
+            // 修正用户输入的时间，保存时加上8小时以保持计算逻辑正确
+            correctTimeInputForStorage(timeString) {
+                try {
+                    // 解析时间字符串 HH:mm
+                    const [hours, minutes] = timeString.split(':').map(num => parseInt(num, 10));
+                    
+                    // 加上8小时进行存储修正
+                    let correctedHours = hours + 8;
+                    if (correctedHours >= 24) {
+                        correctedHours -= 24; // 处理超过24小时的情况
+                    }
+                    
+                    // 格式化回字符串
+                    return `${String(correctedHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+                } catch (error) {
+                    console.warn('输入时间修正失败:', timeString, error);
+                    return timeString; // 出错时返回原值
+                }
             }
 
 
@@ -2348,10 +2389,10 @@
 
             async saveGroupingConfiguration() {
                 const newConfig = {
-                    day: { start: this.dayStart.value },
-                    week: { startDay: parseInt(this.weekStartDay.value), startTime: this.weekStartTime.value },
-                    month: { startDate: parseInt(this.monthStartDate.value), startTime: this.monthStartTime.value },
-                    quarter: { startMonth: parseInt(this.quarterStartMonth.value), startTime: this.quarterStartTime.value }
+                    day: { start: this.correctTimeInputForStorage(this.dayStart.value) },
+                    week: { startDay: parseInt(this.weekStartDay.value), startTime: this.correctTimeInputForStorage(this.weekStartTime.value) },
+                    month: { startDate: parseInt(this.monthStartDate.value), startTime: this.correctTimeInputForStorage(this.monthStartTime.value) },
+                    quarter: { startMonth: parseInt(this.quarterStartMonth.value), startTime: this.correctTimeInputForStorage(this.quarterStartTime.value) }
                 };
 
                 console.log('💾 保存新的周期配置:', newConfig);
