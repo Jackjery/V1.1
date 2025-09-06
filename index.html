@@ -1279,8 +1279,19 @@
                 // 周期结束时间 = 周期起始时间 + 1天
                 const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
 
-                // 周期标签为目标日期
-                const groupKey = this.formatDate(targetDate);
+                // 🚨 修复：周期标签应该基于周期结束时间的日期，而不是起始时间
+                // 这样可以确保跨日周期被正确标记为"结束日"的周期
+                const labelDate = new Date(cycleEnd.getTime() - 1); // 周期结束前1毫秒的日期
+                const groupKey = this.formatDate(labelDate);
+
+                // 调试：确认修复效果
+                if (fileDate.getFullYear() === 2025 && fileDate.getMonth() === 0 && fileDate.getDate() === 1 && fileDate.getHours() === 0 && fileDate.getMinutes() === 0) {
+                    console.log(`🔧 修复后的key生成: 
+                        cycleStart=${cycleStart.toLocaleString()}
+                        cycleEnd=${cycleEnd.toLocaleString()} 
+                        labelDate=${labelDate.toLocaleString()}
+                        最终key=${groupKey}`);
+                }
 
                 return {
                     key: groupKey,
