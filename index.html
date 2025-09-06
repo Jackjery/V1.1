@@ -1772,6 +1772,7 @@
                     
                     console.log(`🔍 统计参数: 分组类型=${groupType}, 时间范围=${startDate?.toLocaleString()} 至 ${endDate?.toLocaleString()}`);
                     console.log(`💾 本地缓存数据总数: ${this.data.length} 条`);
+                    console.log(`⚙️ 当前周期引擎配置:`, this.cycleEngine.config);
 
                     const stats = this.groupDataByCycle(groupType, startDate, endDate);
                     
@@ -2163,6 +2164,7 @@
 
             updateGroupingConfigForm() {
                 const config = this.cycleEngine.config;
+                console.log('🔧 当前周期配置:', config);
                 this.dayStart.value = config.day.start;
                 this.dayStartDisplay.textContent = config.day.start;
                 this.dayEndDisplay.textContent = config.day.start;
@@ -2331,7 +2333,11 @@
                 
                 console.log('✅ 更新后的配置:', this.cycleEngine.config);
                 
-                showSuccess('周期配置已更新');
+                // 🚨 重要：配置更新后，重新计算当前显示的统计数据
+                console.log('🔄 配置已更新，重新生成统计...');
+                this.generateStatistics();
+                
+                showSuccess('周期配置已更新，统计数据已刷新');
                 this.closeGroupingConfig();
             }
 
