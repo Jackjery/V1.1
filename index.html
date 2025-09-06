@@ -714,24 +714,7 @@
                         );
                     }
                     
-                    // 不进行UTC转换的回退解析
-                    // 如果是ISO格式，移除时区信息并按本地时间解析
-                    const cleanStr = timeStr.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
-                    const isoMatch = cleanStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/);
-                    if (isoMatch) {
-                        const [, year, month, day, hour, minute, second] = isoMatch;
-                        return new Date(
-                            parseInt(year), 
-                            parseInt(month) - 1, 
-                            parseInt(day), 
-                            parseInt(hour), 
-                            parseInt(minute), 
-                            parseInt(second)
-                        );
-                    }
-                    
-                    // 最后回退：简单的日期解析（仍可能有时区问题）
-                    console.warn('时间解析回退到默认方法，可能存在时区转换:', timeStr);
+                    // 回退到默认解析（与index_old.html保持一致）
                     return new Date(timeStr);
                 } catch (error) {
                     return new Date(NaN);
@@ -1811,8 +1794,8 @@
                             // 已经是日期对象，直接使用文件时间
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            // 字符串日期，严格按文件时间解析（避免时区转换）
-                            date = this.parseFileTime(timeValue);
+                            // 字符串日期，按文件时间解析
+                            date = new Date(timeValue);
                         } else if (typeof timeValue === 'number') {
                             // Excel日期数字，转换为文件时间
                             date = new Date((timeValue - 25569) * 86400000);
@@ -2159,50 +2142,6 @@
                 this.quarterStartTime.value = config.quarter.startTime;
             }
 
-            // 新增：严格按文件时间解析时间字符串（避免时区转换）
-            parseFileTime(timeStr) {
-                if (!timeStr) return new Date(NaN);
-                
-                try {
-                    // 尝试解析 YYYY-MM-DD HH:mm:ss 格式
-                    const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
-                    if (match) {
-                        const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
-                        // 直接构造文件时间，不经过UTC转换
-                        return new Date(
-                            parseInt(year), 
-                            parseInt(month) - 1, 
-                            parseInt(day), 
-                            parseInt(hour), 
-                            parseInt(minute), 
-                            parseInt(second)
-                        );
-                    }
-                    
-                    // 不进行UTC转换的回退解析
-                    // 如果是ISO格式，移除时区信息并按文件时间解析
-                    const cleanStr = timeStr.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
-                    const isoMatch = cleanStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/);
-                    if (isoMatch) {
-                        const [, year, month, day, hour, minute, second] = isoMatch;
-                        return new Date(
-                            parseInt(year), 
-                            parseInt(month) - 1, 
-                            parseInt(day), 
-                            parseInt(hour), 
-                            parseInt(minute), 
-                            parseInt(second)
-                        );
-                    }
-                    
-                    // 最后回退：简单的日期解析（仍可能有时区问题）
-                    console.warn('时间解析回退到默认方法，可能存在时区转换:', timeStr);
-                    return new Date(timeStr);
-                } catch (error) {
-                    return new Date(NaN);
-                }
-            }
-
             // 新增：动态查找包含关键词的字段值
             findFieldValue(item, keywords) {
                 // 首先尝试精确匹配
@@ -2257,7 +2196,7 @@
                             if (timeValue instanceof Date) {
                                 date = this.cycleEngine.createFileDate(timeValue);
                             } else if (typeof timeValue === 'string') {
-                                date = this.parseFileTime(timeValue);
+                                date = new Date(timeValue);
                             } else if (typeof timeValue === 'number') {
                                 date = new Date((timeValue - 25569) * 86400000);
                             } else {
@@ -2579,7 +2518,7 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = this.parseFileTime(timeValue);
+                            date = new Date(timeValue);
                         } else if (typeof timeValue === 'number') {
                             date = new Date((timeValue - 25569) * 86400000);
                         } else {
@@ -2645,7 +2584,7 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = this.parseFileTime(timeValue);
+                            date = new Date(timeValue);
                         } else if (typeof timeValue === 'number') {
                             date = new Date((timeValue - 25569) * 86400000);
                         } else {
