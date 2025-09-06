@@ -1806,6 +1806,7 @@
                         const midStart = makeMidday(startDateStr);
                         const gStart = this.cycleEngine.getGroup(midStart, groupType);
                         startBound = gStart.rangeStart;
+                        console.log(`🔸 startDateStr=${startDateStr}, midStart=${midStart?.toLocaleString()}, gStart.rangeStart=${gStart.rangeStart?.toLocaleString()}`);
                     }
 
                     if (endDateStr) {
@@ -1813,6 +1814,7 @@
                         const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
                         // inclusive end bound: group rangeEnd - 1ms so comparisons like date <= endBound work
                         endBound = new Date(gEnd.rangeEnd.getTime() - 1);
+                        console.log(`🔸 endDateStr=${endDateStr}, midEnd=${midEnd?.toLocaleString()}, gEnd.rangeEnd=${gEnd.rangeEnd?.toLocaleString()}`);
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到基于本地日历的默认解析', err);
@@ -1839,11 +1841,15 @@
                     console.log('📊 开始生成统计结果（基于本地缓存数据）...');
                     
                     const groupType = this.groupBy.value;
+                    
+                    console.log(`🔍 输入的日期范围: ${this.startDate.value} 至 ${this.endDate.value}`);
+                    console.log(`⚙️ 当前配置:`, this.cycleEngine.config);
+                    
                     const range = this.computeDateRangeForGroup(groupType, this.startDate.value, this.endDate.value);
                     const startDate = range.startDate;
                     const endDate = range.endDate;
                     
-                    console.log(`🔍 统计参数: 分组类型=${groupType}, 时间范围=${startDate?.toLocaleString()} 至 ${endDate?.toLocaleString()}`);
+                    console.log(`🔍 计算后的时间范围: ${startDate?.toLocaleString()} 至 ${endDate?.toLocaleString()}`);
                     console.log(`💾 本地缓存数据总数: ${this.data.length} 条`);
                     console.log(`⚙️ 当前周期引擎配置:`, this.cycleEngine.config);
 
