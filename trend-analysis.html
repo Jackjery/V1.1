@@ -538,7 +538,8 @@
             '测站名称': 'station_name',
             '任务结果状态': 'task_result',
             '任务类型': 'task_type',
-            '开始时间': 'start_time'
+            '开始时间': 'start_time',
+            '计划ID': 'id'
         };
 
         // ==================== IndexedDB缓存管理器（从index.html复制） ====================
@@ -782,7 +783,18 @@
                 const groups = {};
                 const groupMetadata = {};
 
+                // 先按计划ID去重，保留最新的记录
+                const uniqueDataMap = new Map();
                 sortedData.forEach(item => {
+                    const planId = item[planIdField];
+                    if (planId) {
+                        uniqueDataMap.set(planId, item);
+                    }
+                });
+                
+                const uniqueData = Array.from(uniqueDataMap.values());
+                
+                uniqueData.forEach(item => {
                     const startTime = item[startTimeField];
                     if (!startTime) return;
 
@@ -2078,7 +2090,7 @@
                 const groupedResult = this.cycleEngine.groupByStartTime(
                     this.filteredData,
                     groupBy,
-                    '计划ID',
+                    FIELD_MAPPING['计划ID'],
                     FIELD_MAPPING['开始时间']
                 );
 
