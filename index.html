@@ -1798,25 +1798,41 @@
                 let startBound = null;
                 let endBound = null;
 
-                // Helper: make a midday Date for given yyyy-mm-dd to ensure it falls within the intended group's bucket
+                // Helper: 使用齿轮配置时间来确保正确落在周期分组内
                 const makeMidday = (dateStr) => {
                     if (!dateStr) return null;
                     const parts = dateStr.split('-').map(Number);
-                    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0); // 12:00 local time
+                    
+                    // 获取齿轮配置的时间
+                    const config = this.cycleEngine.config;
+                    let configTime = config.day.start;
+                    
+                    // 解析齿轮时间 HH:mm
+                    const [hours = 0, minutes = 0] = configTime.split(':').map(num => parseInt(num, 10));
+                    
+                    // 使用齿轮配置的具体时间而不是12:00
+                    return new Date(parts[0], parts[1] - 1, parts[2], hours, minutes, 0, 0);
                 };
 
                 try {
                     if (startDateStr) {
                         const midStart = makeMidday(startDateStr);
                         const gStart = this.cycleEngine.getGroup(midStart, groupType);
-                        startBound = gStart.rangeStart;
+                        
+                        // 确保startBound不早于用户设置的开始日期
+                        const userStartDate = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
+                        startBound = gStart.rangeStart < userStartDate ? userStartDate : gStart.rangeStart;
                     }
 
                     if (endDateStr) {
                         const midEnd = makeMidday(endDateStr);
                         const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
-                        // inclusive end bound: 使用完整的rangeEnd确保包含结束日期
-                        endBound = gEnd.rangeEnd;
+                        
+                        // 确保包含结束日期的完整周期，延长到下一天的齿轮时间
+                        const nextDayStart = new Date(midEnd);
+                        nextDayStart.setDate(nextDayStart.getDate() + 1);
+                        const gNext = this.cycleEngine.getGroup(nextDayStart, groupType);
+                        endBound = gNext.rangeStart;
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到基于本地日历的默认解析', err);
