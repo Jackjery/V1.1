@@ -1245,7 +1245,7 @@
                 );
             }
 
-            // 严格按照文件时间解析字符串，完全避免时区转换
+            // 严格按照文件时间解析时间字符串，完全避免浏览器时区转换
             parseFileTimeString(timeStr) {
                 if (!timeStr) return new Date(NaN);
                 
@@ -1280,11 +1280,10 @@
                         );
                     }
                     
-                    // 最后回退：构造一个0点时间
-                    const dateOnly = timeStr.split(' ')[0];
-                    const dateParts = dateOnly.split('-').map(Number);
-                    if (dateParts.length >= 3) {
-                        return new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 0, 0, 0);
+                    // 最后尝试标准解析，但转换为文件时间
+                    const standardDate = new Date(timeStr);
+                    if (!isNaN(standardDate.getTime())) {
+                        return this.createFileDate(standardDate);
                     }
                     
                     return new Date(NaN);
@@ -1292,6 +1291,7 @@
                     return new Date(NaN);
                 }
             }
+
 
             // 按日周期分组 - 完全基于文件时间
             getDayGroup(date) {
