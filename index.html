@@ -1922,14 +1922,25 @@
 
                         if (isNaN(date.getTime())) return;
                         
-                        // 时间范围过滤
+                        // 时间范围过滤 - 添加调试
                         if (startDate && date < startDate) {
                             filteredByTimeCount++;
+                            if (processedCount < 3) { // 只打印前几个被过滤的数据
+                                console.log(`🚫 过滤(早于开始): ${date.toLocaleString()} < ${startDate.toLocaleString()}`);
+                            }
                             return;
                         }
                         if (endDate && date > endDate) {
                             filteredByTimeCount++;
+                            if (processedCount < 3) { // 只打印前几个被过滤的数据
+                                console.log(`🚫 过滤(晚于结束): ${date.toLocaleString()} > ${endDate.toLocaleString()}`);
+                            }
                             return;
+                        }
+                        
+                        // 通过时间过滤的数据 - 添加调试
+                        if (dataInRange < 3) { // 只打印前几个通过的数据
+                            console.log(`✅ 通过时间过滤: ${date.toLocaleString()}`);
                         }
                         
                         dataInRange++;
