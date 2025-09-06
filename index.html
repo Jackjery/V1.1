@@ -1815,8 +1815,8 @@
                     if (endDateStr) {
                         const midEnd = makeMidday(endDateStr);
                         const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
-                        // inclusive end bound: group rangeEnd - 1ms so comparisons like date <= endBound work
-                        endBound = new Date(gEnd.rangeEnd.getTime() - 1);
+                        // inclusive end bound: 使用完整的rangeEnd确保包含结束日期
+                        endBound = gEnd.rangeEnd;
                     }
                 } catch (err) {
                     console.warn('计算日期范围失败，回退到基于本地日历的默认解析', err);
@@ -1896,7 +1896,7 @@
                         
                         // 如果指定了日期范围，过滤不在范围内的数据（使用文件时间比较）
                         if (startDate && date < startDate) return;
-                        if (endDate && date > endDate) return;
+                        if (endDate && date >= endDate) return;
                         
                         // 获取周期组信息（基于文件时间）
                         const groupInfo = this.cycleEngine.getGroup(date, groupType);
@@ -2360,7 +2360,7 @@
                             
                             // 如果指定了日期范围，过滤不在范围内的数据
                             if (startDate && date < startDate) return;
-                            if (endDate && date > endDate) return;
+                            if (endDate && date >= endDate) return;
                             
                             // 收集卫星和客户信息 - 动态字段匹配
                             const satellite = this.findFieldValue(item, ['satellite_name', 'satellite', '卫星名称', '卫星', '星']);
