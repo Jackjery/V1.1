@@ -1245,6 +1245,54 @@
                 );
             }
 
+            // 严格按照文件时间解析字符串，完全避免时区转换
+            parseFileTimeString(timeStr) {
+                if (!timeStr) return new Date(NaN);
+                
+                try {
+                    // 解析 YYYY-MM-DD HH:mm:ss 格式
+                    const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
+                    if (match) {
+                        const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
+                        // 直接构造文件时间，不经过任何时区转换
+                        return new Date(
+                            parseInt(year), 
+                            parseInt(month) - 1, 
+                            parseInt(day), 
+                            parseInt(hour), 
+                            parseInt(minute), 
+                            parseInt(second)
+                        );
+                    }
+                    
+                    // 如果是ISO格式，移除时区信息并按文件时间解析
+                    const cleanStr = timeStr.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
+                    const isoMatch = cleanStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/);
+                    if (isoMatch) {
+                        const [, year, month, day, hour, minute, second] = isoMatch;
+                        return new Date(
+                            parseInt(year), 
+                            parseInt(month) - 1, 
+                            parseInt(day), 
+                            parseInt(hour), 
+                            parseInt(minute), 
+                            parseInt(second)
+                        );
+                    }
+                    
+                    // 最后回退：构造一个0点时间
+                    const dateOnly = timeStr.split(' ')[0];
+                    const dateParts = dateOnly.split('-').map(Number);
+                    if (dateParts.length >= 3) {
+                        return new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 0, 0, 0);
+                    }
+                    
+                    return new Date(NaN);
+                } catch (error) {
+                    return new Date(NaN);
+                }
+            }
+
             // 按日周期分组 - 完全基于文件时间
             getDayGroup(date) {
                 const dayConfig = this.config.day;
@@ -1863,10 +1911,11 @@
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
                             // 字符串日期，按文件时间解析
-                            date = this.cycleEngine.createFileDate(new Date(timeValue));
+                            date = this.cycleEngine.parseFileTimeString(timeValue);
                         } else if (typeof timeValue === 'number') {
                             // Excel日期数字，转换为文件时间
-                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
+                            const excelDate = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(excelDate);
                         } else {
                             console.warn('无法解析时间:', item);
                             return;
@@ -2284,9 +2333,10 @@
                             if (timeValue instanceof Date) {
                                 date = this.cycleEngine.createFileDate(timeValue);
                             } else if (typeof timeValue === 'string') {
-                                date = this.cycleEngine.createFileDate(new Date(timeValue));
+                                date = this.cycleEngine.parseFileTimeString(timeValue);
                             } else if (typeof timeValue === 'number') {
-                                date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
+                                const excelDate = new Date((timeValue - 25569) * 86400000);
+                                date = this.cycleEngine.createFileDate(excelDate);
                             } else {
                                 return;
                             }
@@ -2610,9 +2660,10 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = this.cycleEngine.createFileDate(new Date(timeValue));
+                            date = this.cycleEngine.parseFileTimeString(timeValue);
                         } else if (typeof timeValue === 'number') {
-                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
+                            const excelDate = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(excelDate);
                         } else {
                             return;
                         }
@@ -2676,9 +2727,10 @@
                         if (timeValue instanceof Date) {
                             date = this.cycleEngine.createFileDate(timeValue);
                         } else if (typeof timeValue === 'string') {
-                            date = this.cycleEngine.createFileDate(new Date(timeValue));
+                            date = this.cycleEngine.parseFileTimeString(timeValue);
                         } else if (typeof timeValue === 'number') {
-                            date = this.cycleEngine.createFileDate(new Date((timeValue - 25569) * 86400000));
+                            const excelDate = new Date((timeValue - 25569) * 86400000);
+                            date = this.cycleEngine.createFileDate(excelDate);
                         } else {
                             return;
                         }
