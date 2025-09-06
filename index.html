@@ -699,12 +699,13 @@
                 if (!timeStr) return new Date(NaN);
                 
                 try {
+                    // 统一使用与SatelliteApp相同的解析逻辑
                     // 尝试解析 YYYY-MM-DD HH:mm:ss 格式
                     const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
                     if (match) {
                         const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
-                        // 直接构造本地时间，不经过UTC转换
-                        return new Date(
+                        // 直接构造文件时间，不经过UTC转换
+                        const result = new Date(
                             parseInt(year), 
                             parseInt(month) - 1, 
                             parseInt(day), 
@@ -712,14 +713,16 @@
                             parseInt(minute), 
                             parseInt(second)
                         );
+                        console.log(`🔧 CacheManager解析: ${timeStr} -> ${result.toLocaleString()}`);
+                        return result;
                     }
                     
-                    // 如果是ISO格式，移除时区信息并按本地时间解析
+                    // 如果是ISO格式，移除时区信息并按文件时间解析
                     const cleanStr = timeStr.replace(/[TZ]/g, ' ').replace(/[+-]\d{2}:\d{2}$/, '').trim();
                     const isoMatch = cleanStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})/);
                     if (isoMatch) {
                         const [, year, month, day, hour, minute, second] = isoMatch;
-                        return new Date(
+                        const result = new Date(
                             parseInt(year), 
                             parseInt(month) - 1, 
                             parseInt(day), 
@@ -727,6 +730,8 @@
                             parseInt(minute), 
                             parseInt(second)
                         );
+                        console.log(`🔧 CacheManager解析ISO: ${timeStr} -> ${result.toLocaleString()}`);
+                        return result;
                     }
                     
                     // 最后回退：构造一个0点时间（避免时区问题）
@@ -734,11 +739,14 @@
                     const dateOnly = timeStr.split(' ')[0]; // 只取日期部分
                     const dateParts = dateOnly.split('-').map(Number);
                     if (dateParts.length >= 3) {
-                        return new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 0, 0, 0);
+                        const result = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 0, 0, 0);
+                        console.log(`🔧 CacheManager回退解析: ${timeStr} -> ${result.toLocaleString()}`);
+                        return result;
                     }
                     
                     return new Date(NaN);
                 } catch (error) {
+                    console.error('CacheManager时间解析错误:', timeStr, error);
                     return new Date(NaN);
                 }
             }
@@ -1245,7 +1253,9 @@
                 const groupDate = new Date(cycleStart);
                 const groupKey = this.formatDate(groupDate);
 
-                console.log(`📅 日周期分组 [${hours}:${String(minutes).padStart(2, '0')}]: ${fileDate.toLocaleString()} -> ${groupKey}组 (${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()})`);
+                console.log(`📅 日周期分组 [${hours}:${String(minutes).padStart(2, '0')}]: ${fileDate.toLocaleString()} -> ${groupKey}组`);
+                console.log(`   🕐 周期范围: ${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()}`);
+                console.log(`   📝 文件时间=${fileDate.toLocaleString()}, 参考时间=${referenceStart.toLocaleString()}, 比较结果=${fileDate >= referenceStart}`);
 
                 return {
                     key: groupKey,
@@ -2709,11 +2719,48 @@
 
         }
 
+        // 调试函数：测试分组逻辑
+        function testGroupingLogic() {
+            const engine = new CycleRuleEngine();
+            
+            // 测试8点规则
+            engine.updateConfig({ day: { start: '08:00' } });
+            
+            const testTimes = [
+                '2024-01-01 06:00:00', // 应该归入2023-12-31组
+                '2024-01-01 08:00:00', // 应该归入2024-01-01组  
+                '2024-01-01 10:00:00', // 应该归入2024-01-01组
+                '2024-01-02 07:00:00', // 应该归入2024-01-01组
+                '2024-01-02 08:00:00'  // 应该归入2024-01-02组
+            ];
+            
+            console.log('🧪 测试8点分组规则：');
+            testTimes.forEach(timeStr => {
+                // 使用与SatelliteApp相同的解析方法
+                const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
+                let date;
+                if (match) {
+                    const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
+                    date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 
+                                  parseInt(hour), parseInt(minute), parseInt(second));
+                } else {
+                    date = new Date(timeStr); // 回退
+                }
+                
+                const group = engine.getGroup(date, 'day');
+                console.log(`${timeStr} -> ${group.key}组 (${group.rangeStart.toLocaleString()} ~ ${group.rangeEnd.toLocaleString()})`);
+            });
+        }
+
         // 初始化应用 - 添加自动数据预载
         document.addEventListener('DOMContentLoaded', async () => {
             try {
                 // 页面加载时自动预载所有数据
                 console.log('🌟 页面加载完成，开始自动预载数据...');
+                
+                // 调试：测试分组逻辑
+                testGroupingLogic();
+                
                 await dataPreloader.autoPreloadAllData();
                 
                 // 初始化应用
