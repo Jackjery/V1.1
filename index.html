@@ -2004,6 +2004,7 @@
 
                 console.log(`📈 [${callId}] 时间范围内数据: ${dataInRange} 条, 过滤掉: ${filteredByTimeCount} 条`);
                 console.log(`📊 [${callId}] 最终分组数: ${statsArray.length} 个`);
+                console.log(`🔍 [${callId}] 实际时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
                 
                 // 打印各组的计数
                 statsArray.forEach(stat => {
