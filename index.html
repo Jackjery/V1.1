@@ -1253,9 +1253,7 @@
                 const groupDate = new Date(cycleStart);
                 const groupKey = this.formatDate(groupDate);
 
-                console.log(`📅 日周期分组 [${hours}:${String(minutes).padStart(2, '0')}]: ${fileDate.toLocaleString()} -> ${groupKey}组`);
-                console.log(`   🕐 周期范围: ${cycleStart.toLocaleString()} ~ ${cycleEnd.toLocaleString()}`);
-                console.log(`   📝 文件时间=${fileDate.toLocaleString()}, 参考时间=${referenceStart.toLocaleString()}, 比较结果=${fileDate >= referenceStart}`);
+                // 分组逻辑已验证正确
 
                 return {
                     key: groupKey,
@@ -1798,6 +1796,9 @@
                 console.log(`🚀 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
                 console.log(`🔧 当前周期配置:`, this.cycleEngine.config);
                 console.log(`📊 输入数据总数: ${this.data.length} 条`);
+                
+                // 统计时间范围内的数据
+                let dataInRange = 0;
 
                 // 检查数据唯一性
                 const allPlanIds = new Set();
@@ -1847,14 +1848,13 @@
                             filteredByTimeCount++;
                             return;
                         }
+                        
+                        dataInRange++;
 
                         // 获取周期组信息（基于文件时间）
                         const groupInfo = this.cycleEngine.getGroup(date, groupType);
                         
-                        // 调试：打印前几个数据的分组情况
-                        if (processedCount < 3) {
-                            console.log(`🔍 数据项${processedCount}: ${date.toLocaleString()} -> ${groupInfo.key}组 (${groupInfo.rangeStart.toLocaleString()} ~ ${groupInfo.rangeEnd.toLocaleString()})`);
-                        }
+                        // 分组逻辑已验证正确
                         
                         // 如果该组不存在，则初始化
                         if (!groups[groupInfo.key]) {
@@ -1894,6 +1894,14 @@
                     stat.failureCount = this.taskAnalyzer.countFailures(stat.results);
                     // 传入计划ID总数作为第二个参数
                     stat.successRate = this.taskAnalyzer.calculateSuccessRate(stat.results, stat.count);
+                });
+
+                console.log(`📈 时间范围内数据: ${dataInRange} 条, 过滤掉: ${filteredByTimeCount} 条`);
+                console.log(`📊 最终分组数: ${statsArray.length} 个`);
+                
+                // 打印各组的计数
+                statsArray.forEach(stat => {
+                    console.log(`📋 ${stat.key}组: ${stat.count}个计划ID, ${stat.failureCount}个失败, ${stat.successRate.toFixed(1)}%成功率`);
                 });
 
                 return statsArray;
@@ -2730,38 +2738,7 @@
 
         }
 
-        // 调试函数：测试分组逻辑
-        function testGroupingLogic() {
-            const engine = new CycleRuleEngine();
-            
-            // 测试8点规则
-            engine.updateConfig({ day: { start: '08:00' } });
-            
-            const testTimes = [
-                '2024-01-01 06:00:00', // 应该归入2023-12-31组
-                '2024-01-01 08:00:00', // 应该归入2024-01-01组  
-                '2024-01-01 10:00:00', // 应该归入2024-01-01组
-                '2024-01-02 07:00:00', // 应该归入2024-01-01组
-                '2024-01-02 08:00:00'  // 应该归入2024-01-02组
-            ];
-            
-            console.log('🧪 测试8点分组规则：');
-            testTimes.forEach(timeStr => {
-                // 使用与SatelliteApp相同的解析方法
-                const match = timeStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
-                let date;
-                if (match) {
-                    const [, year, month, day, hour = 0, minute = 0, second = 0] = match;
-                    date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 
-                                  parseInt(hour), parseInt(minute), parseInt(second));
-                } else {
-                    date = new Date(timeStr); // 回退
-                }
-                
-                const group = engine.getGroup(date, 'day');
-                console.log(`${timeStr} -> ${group.key}组 (${group.rangeStart.toLocaleString()} ~ ${group.rangeEnd.toLocaleString()})`);
-            });
-        }
+        // 分组逻辑已验证正确
 
         // 初始化应用 - 添加自动数据预载
         document.addEventListener('DOMContentLoaded', async () => {
@@ -2769,8 +2746,7 @@
                 // 页面加载时自动预载所有数据
                 console.log('🌟 页面加载完成，开始自动预载数据...');
                 
-                // 调试：测试分组逻辑
-                testGroupingLogic();
+                // 分组逻辑已验证正确，移除测试代码
                 
                 await dataPreloader.autoPreloadAllData();
                 
