@@ -1194,330 +1194,98 @@
             }
         }
 
-        // 周期规则引擎 - 保留（基于文件时间）
+        // 全新的周期规则引擎 - 按照严格要求重写
         class CycleRuleEngine {
             constructor() {
                 this.config = {
-                    day: { start: '00:00' },
-                    week: { startDay: 1, startTime: '00:00' },
-                    month: { startDate: 1, startTime: '00:00' },
-                    quarter: { startMonth: 1, startTime: '00:00' }
+                    day: { start: '00:00' }
                 };
             }
 
-            updateConfig(newConfig) {
-                this.config = { ...this.config, ...newConfig };
-                return true;
-            }
-
-            parseTimeToHoursMinutes(timeStr) {
+            // 解析时间字符串为小时和分钟
+            parseTime(timeStr) {
                 const [hours, minutes] = timeStr.split(':').map(Number);
                 return { hours: hours || 0, minutes: minutes || 0 };
             }
 
+            // 格式化日期为 YYYY-MM-DD
             formatDate(date) {
                 return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
             }
 
-            createFileDate(originalDate) {
-                return new Date(
-                    originalDate.getFullYear(),
-                    originalDate.getMonth(),
-                    originalDate.getDate(),
-                    originalDate.getHours(),
-                    originalDate.getMinutes(),
-                    originalDate.getSeconds()
-                );
-            }
-
-            getDayGroup(date) {
-                const dayConfig = this.config.day;
-                const { hours, minutes } = this.parseTimeToHoursMinutes(dayConfig.start);
+            // 核心方法：计算指定日期X日的完整周期时间范围
+            // 返回：X日TT:TT 至 X+1日TT:TT 的时间范围
+            getDayCycleRange(targetDateStr, startTime) {
+                const { hours, minutes } = this.parseTime(startTime);
                 
-                // 调试已移除：getDayGroup配置验证通过
-
-                // 创建严格的文件时间对象，不考虑浏览器时区
-                const fileDate = this.createFileDate(date);
-
-                // 核心逻辑重构：先计算基准时间点再判断归属
-                // 计算当日的起始时间点（如当日8:00）
-                const todayStartPoint = new Date(
-                    fileDate.getFullYear(),
-                    fileDate.getMonth(),
-                    fileDate.getDate(),
-                    hours,
-                    minutes,
-                    0,
-                    0
-                );
-
-                // 判断当前时间是否已过当日起始点
-                const isPastStartPoint = fileDate >= todayStartPoint;
-
-                let targetDate, cycleStart;
-
-                if (isPastStartPoint) {
-                    // 已过当日起始点，归属到今天的周期
-                    targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate());
-                    cycleStart = todayStartPoint;
-                } else {
-                    // 未过当日起始点，归属到前一天的周期
-                    targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate() - 1);
-                    cycleStart = new Date(todayStartPoint.getTime() - 24 * 60 * 60 * 1000);
-                }
+                // 解析目标日期 (X日)
+                const [year, month, day] = targetDateStr.split('-').map(Number);
+                const targetDate = new Date(year, month - 1, day);
                 
-                // 🚨 关键调试：针对特定时间点的分组决策
-                if (fileDate.getFullYear() === 2025 && fileDate.getMonth() === 0 && fileDate.getDate() === 1 && fileDate.getHours() === 0 && fileDate.getMinutes() === 0) {
-                    console.log(`🔍 getDayGroup调试[2025-01-01 00:00]: 
-                        配置=${dayConfig.start}
-                        todayStartPoint=${todayStartPoint.toLocaleString()}
-                        isPastStartPoint=${isPastStartPoint}
-                        cycleStart=${cycleStart.toLocaleString()}
-                        key=${this.formatDate(targetDate)}`);
-                }
-
-                // 周期结束时间 = 周期起始时间 + 1天
-                const cycleEnd = new Date(cycleStart.getTime() + 24 * 60 * 60 * 1000);
-
-                // 🚨 修复：周期标签应该基于周期结束时间的日期，而不是起始时间
-                // 这样可以确保跨日周期被正确标记为"结束日"的周期
-                const labelDate = new Date(cycleEnd.getTime() - 1); // 周期结束前1毫秒的日期
-                const groupKey = this.formatDate(labelDate);
-
-                // 调试：确认修复效果
-                if (fileDate.getFullYear() === 2025 && fileDate.getMonth() === 0 && fileDate.getDate() === 1 && fileDate.getHours() === 0 && fileDate.getMinutes() === 0) {
-                    console.log(`🔧 修复后的key生成: 
-                        cycleStart=${cycleStart.toLocaleString()}
-                        cycleEnd=${cycleEnd.toLocaleString()} 
-                        labelDate=${labelDate.toLocaleString()}
-                        最终key=${groupKey}`);
-                }
-
+                // 计算周期起始时间：X日TT:TT
+                const cycleStart = new Date(year, month - 1, day, hours, minutes, 0, 0);
+                
+                // 计算周期结束时间：X+1日TT:TT (不含)
+                const nextDay = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000);
+                const cycleEnd = new Date(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate(), hours, minutes, 0, 0);
+                
                 return {
-                    key: groupKey,
-                    label: groupKey,
+                    key: targetDateStr,
+                    label: targetDateStr,
                     rangeStart: cycleStart,
                     rangeEnd: cycleEnd
                 };
             }
 
-            getWeekGroup(date) {
-                const weekConfig = this.config.week;
-                let startDay = Number(weekConfig.startDay);
-                const { hours, minutes } = this.parseTimeToHoursMinutes(weekConfig.startTime);
-                const fileDate = this.createFileDate(date);
+            // 核心方法：判断数据时间点归属于哪一日
+            // 规则：X日TT:TT 至 X+1日TT:TT 的数据计入X日
+            getDataBelongToDate(dataTime, startTime) {
+                const { hours, minutes } = this.parseTime(startTime);
                 
-                // 周周期修复：周日统一视为 7
-                const currentDay = fileDate.getDay() === 0 ? 7 : fileDate.getDay(); // 1-7，周一到周日
-                if (startDay === 0) startDay = 7; // 配置中的周日也改为7
+                // 1. 先计算基准时间点：当日的起始时间
+                const currentDate = new Date(dataTime.getFullYear(), dataTime.getMonth(), dataTime.getDate());
+                const todayStartPoint = new Date(currentDate.getTime());
+                todayStartPoint.setHours(hours, minutes, 0, 0);
                 
-                // 计算到本周起始日的天数差
-                let dayDiff = currentDay - startDay;
-                if (dayDiff < 0) dayDiff += 7;
-                
-                // 本周的起始时间点（如周一8:00）
-                const thisWeekStartPoint = new Date(
-                    fileDate.getFullYear(), 
-                    fileDate.getMonth(), 
-                    fileDate.getDate() - dayDiff, 
-                    hours, 
-                    minutes, 
-                    0, 
-                    0
-                );
-                
-                // 判断当前时间是否已过本周起始点
-                const isPastWeekStartPoint = fileDate >= thisWeekStartPoint;
-                
-                let cycleStart;
-                if (isPastWeekStartPoint) {
-                    // 已过本周起始点，归属到本周
-                    cycleStart = thisWeekStartPoint;
+                // 2. 再判断归属
+                if (dataTime >= todayStartPoint) {
+                    // 数据时间 >= 当日起始时间，归属到当日
+                    return this.formatDate(currentDate);
                 } else {
-                    // 未过本周起始点，归属到上周
-                    cycleStart = new Date(thisWeekStartPoint.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    // 数据时间 < 当日起始时间，归属到前一日
+                    const prevDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000);
+                    return this.formatDate(prevDate);
                 }
+            }
+
+            // 计算统计时间范围
+            // 开始时间：选择日期的齿轮设置时间
+            // 结束时间：选择结束日期+1日的齿轮设置时间
+            computeStatisticsTimeRange(startDateStr, endDateStr, startTime) {
+                const { hours, minutes } = this.parseTime(startTime);
                 
-                // 周期结束时间是下一个起始时间
-                const cycleEnd = new Date(cycleStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+                // 统计开始时间：startDate的齿轮时间
+                const [startYear, startMonth, startDay] = startDateStr.split('-').map(Number);
+                const statisticsStart = new Date(startYear, startMonth - 1, startDay, hours, minutes, 0, 0);
                 
-                const year = cycleStart.getFullYear();
-                const firstDayOfYear = new Date(year, 0, 1);
-                const pastDaysOfYear = (cycleStart - firstDayOfYear) / 86400000;
-                const week = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-                const weekDays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-                const startDayName = weekDays[startDay];
+                // 统计结束时间：endDate+1日的齿轮时间 (不含)
+                const [endYear, endMonth, endDay] = endDateStr.split('-').map(Number);
+                const endDate = new Date(endYear, endMonth - 1, endDay);
+                const nextDay = new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+                const statisticsEnd = new Date(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate(), hours, minutes, 0, 0);
                 
-                return { 
-                    key: `${year}-W${String(week).padStart(2, '0')}`, 
-                    label: `${year}年第${week}周（${startDayName}）`, 
-                    rangeStart: cycleStart, 
-                    rangeEnd: cycleEnd 
+                return {
+                    startTime: statisticsStart,
+                    endTime: statisticsEnd
                 };
             }
 
-            getMonthGroup(date) {
-                const monthConfig = this.config.month;
-                const startDate = Number(monthConfig.startDate);
-                const { hours, minutes } = this.parseTimeToHoursMinutes(monthConfig.startTime);
-                const fileDate = this.createFileDate(date);
-                
-                // 重构逻辑：先计算基准时间点，再判断归属
-                
-                // 计算本月的起始点（如本月15日8:00）
-                let thisMonthStartPoint = new Date(
-                    fileDate.getFullYear(),
-                    fileDate.getMonth(), 
-                    startDate, 
-                    hours, minutes, 0, 0
-                );
-                
-                // 处理月末日期不存在的情况（如31日在2月）
-                if (thisMonthStartPoint.getDate() !== startDate) {
-                    // 如果指定日期不存在，使用当月最后一天
-                    thisMonthStartPoint = new Date(fileDate.getFullYear(), fileDate.getMonth() + 1, 0, hours, minutes, 0, 0);
-                }
-                
-                // 判断当前时间是否已过本月起始点
-                const isPastMonthStartPoint = fileDate >= thisMonthStartPoint;
-                
-                let cycleStart, targetDate;
-                if (isPastMonthStartPoint) {
-                    // 已过本月起始点，归属到本月周期
-                    cycleStart = thisMonthStartPoint;
-                    targetDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), 1);
-                } else {
-                    // 未过本月起始点，归属到上月周期
-                    const prevMonth = fileDate.getMonth() - 1;
-                    const prevYear = fileDate.getFullYear() + (prevMonth < 0 ? -1 : 0);
-                    const adjustedPrevMonth = prevMonth < 0 ? 11 : prevMonth;
-                    
-                    cycleStart = new Date(prevYear, adjustedPrevMonth, startDate, hours, minutes, 0, 0);
-                    if (cycleStart.getDate() !== startDate) {
-                        cycleStart = new Date(prevYear, adjustedPrevMonth + 1, 0, hours, minutes, 0, 0);
-                    }
-                    targetDate = new Date(prevYear, adjustedPrevMonth, 1);
-                }
-                
-                // 周期结束时间是下一个起始时间（不含）
-                const nextMonth = cycleStart.getMonth() + 1;
-                const nextYear = cycleStart.getFullYear() + (nextMonth > 11 ? 1 : 0);
-                const adjustedNextMonth = nextMonth > 11 ? 0 : nextMonth;
-                let cycleEnd = new Date(nextYear, adjustedNextMonth, startDate, hours, minutes, 0, 0);
-                
-                if (cycleEnd.getDate() !== startDate) {
-                    cycleEnd = new Date(nextYear, adjustedNextMonth + 1, 0, hours, minutes, 0, 0);
-                }
-                
-                const year = cycleStart.getFullYear();
-                const month = cycleStart.getMonth() + 1;
-                
-                return { key: `${year}-${String(month).padStart(2, '0')}`, label: `${year}年${month}月`, rangeStart: cycleStart, rangeEnd: cycleEnd };
-            }
-
-            getQuarterGroup(date) {
-                const quarterConfig = this.config.quarter;
-                const startMonth = Number(quarterConfig.startMonth);
-                const { hours, minutes } = this.parseTimeToHoursMinutes(quarterConfig.startTime);
-                const fileDate = this.createFileDate(date);
-                const currentYear = fileDate.getFullYear();
-                const currentMonth = fileDate.getMonth() + 1;
-                
-                // 重构逻辑：先计算基准时间点，再判断归属
-                
-                // 计算当前年份内可能的季度起始月份
-                let quarterStarts = [];
-                for (let i = 0; i < 4; i++) {
-                    let qMonth = startMonth + i * 3;
-                    if (qMonth > 12) qMonth -= 12;
-                    quarterStarts.push(qMonth);
-                }
-                quarterStarts.sort((a, b) => a - b);
-                
-                // 找到本季度应该的起始月份
-                let thisQuarterStartMonth = quarterStarts[0]; // 默认第一个季度
-                for (let i = quarterStarts.length - 1; i >= 0; i--) {
-                    if (currentMonth >= quarterStarts[i]) {
-                        thisQuarterStartMonth = quarterStarts[i];
-                        break;
-                    }
-                }
-                
-                // 如果当前月份小于年内最小的季度起始月，说明应该看上年的最后一个季度
-                let thisQuarterStartYear = currentYear;
-                if (currentMonth < quarterStarts[0]) {
-                    thisQuarterStartMonth = quarterStarts[quarterStarts.length - 1];
-                    thisQuarterStartYear = currentYear - 1;
-                }
-                
-                // 计算本季度的起始点（如本季度第一个月1日8:00）
-                const thisQuarterStartPoint = new Date(thisQuarterStartYear, thisQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
-                
-                // 判断当前时间是否已过本季度起始点
-                const isPastQuarterStartPoint = fileDate >= thisQuarterStartPoint;
-                
-                let cycleStart;
-                if (isPastQuarterStartPoint) {
-                    // 已过本季度起始点，归属到本季度周期
-                    cycleStart = thisQuarterStartPoint;
-                } else {
-                    // 未过本季度起始点，归属到上季度周期
-                    let prevQuarterStartMonth = thisQuarterStartMonth - 3;
-                    let prevQuarterYear = thisQuarterStartYear;
-                    if (prevQuarterStartMonth <= 0) {
-                        prevQuarterStartMonth = prevQuarterStartMonth + 12;
-                        prevQuarterYear--;
-                    }
-                    cycleStart = new Date(prevQuarterYear, prevQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
-                }
-                
-                // 周期结束时间是下一个起始时间（不含）
-                let nextQuarterStartMonth = cycleStart.getMonth() + 1 + 3;
-                let nextQuarterYear = cycleStart.getFullYear();
-                if (nextQuarterStartMonth > 12) {
-                    nextQuarterStartMonth = nextQuarterStartMonth - 12;
-                    nextQuarterYear++;
-                }
-                const cycleEnd = new Date(nextQuarterYear, nextQuarterStartMonth - 1, 1, hours, minutes, 0, 0);
-                
-                const year = cycleStart.getFullYear();
-                const quarterNum = Math.floor((cycleStart.getMonth() + 1 - startMonth + 12) % 12 / 3) + 1;
-                
-                return { key: `${year}-Q${quarterNum}`, label: `${year}年第${quarterNum}季度`, rangeStart: cycleStart, rangeEnd: cycleEnd };
-            }
-
-            getGroup(date, groupType) {
-                const dateObj = date instanceof Date ? date : new Date(date);
-                if (isNaN(dateObj.getTime())) throw new Error('无效的日期');
-                switch (groupType) {
-                    case 'day': return this.getDayGroup(dateObj);
-                    case 'week': return this.getWeekGroup(dateObj);
-                    case 'month': return this.getMonthGroup(dateObj);
-                    case 'quarter': return this.getQuarterGroup(dateObj);
-                    default: return this.getDayGroup(dateObj);
-                }
-            }
-            
-            // 修复：添加缺失的 updateConfig 方法
+            // 更新配置
             updateConfig(newConfig) {
-                console.log('🔄 CycleRuleEngine.updateConfig: 更新前配置', this.config);
-                console.log('🔄 CycleRuleEngine.updateConfig: 新配置', newConfig);
-                
-                // 深度合并配置，避免 falsy 值被忽略
                 if (newConfig.day) {
                     this.config.day = { ...this.config.day, ...newConfig.day };
                 }
-                if (newConfig.week) {
-                    this.config.week = { ...this.config.week, ...newConfig.week };
-                }
-                if (newConfig.month) {
-                    this.config.month = { ...this.config.month, ...newConfig.month };
-                }
-                if (newConfig.quarter) {
-                    this.config.quarter = { ...this.config.quarter, ...newConfig.quarter };
-                }
-                
-                console.log('✅ CycleRuleEngine.updateConfig: 配置已更新', this.config);
+                console.log('✅ 配置已更新:', this.config);
             }
         }
 
@@ -1812,47 +1580,22 @@
             }
 
             computeDateRangeForGroup(groupType, startDateStr, endDateStr) {
-                let startBound = null;
-                let endBound = null;
-
-                // Helper: make a midday Date for given yyyy-mm-dd to ensure it falls within the intended group's bucket
-                const makeMidday = (dateStr) => {
-                    if (!dateStr) return null;
-                    const parts = dateStr.split('-').map(Number);
-                    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0); // 12:00 local time
-                };
-
-                try {
-                    if (startDateStr) {
-                        const midStart = makeMidday(startDateStr);
-                        const gStart = this.cycleEngine.getGroup(midStart, groupType);
-                        startBound = gStart.rangeStart;
-                        
-                        // 🚨 修复：对于跨日规则，需要向前扩展边界以包含前一周期的数据
-                        if (groupType === 'day' && this.cycleEngine.config.day.start !== '00:00') {
-                            startBound = new Date(startBound.getTime() - 24 * 60 * 60 * 1000);
-                            console.log(`🔧 跨日规则：开始边界向前扩展24小时到 ${startBound.toLocaleString()}`);
-                        }
-                        
-                        console.log(`🔸 startDateStr=${startDateStr}, midStart=${midStart?.toLocaleString()}, 最终startBound=${startBound?.toLocaleString()}`);
-                    }
-
-                    if (endDateStr) {
-                        const midEnd = makeMidday(endDateStr);
-                        const gEnd = this.cycleEngine.getGroup(midEnd, groupType);
-                        // inclusive end bound: group rangeEnd - 1ms so comparisons like date <= endBound work
-                        endBound = new Date(gEnd.rangeEnd.getTime() - 1);
-                        
-                        console.log(`🔸 endDateStr=${endDateStr}, midEnd=${midEnd?.toLocaleString()}, gEnd.rangeEnd=${gEnd.rangeEnd?.toLocaleString()}`);
-                    }
-                } catch (err) {
-                    console.warn('计算日期范围失败，回退到基于本地日历的默认解析', err);
-                    // 退回：按本地午夜/23:59:59.999解析
-                    if (startDateStr) startBound = this.parseDateInputToLocal(startDateStr, 0, 0, 0, 0);
-                    if (endDateStr) endBound = this.parseDateInputToLocal(endDateStr, 23, 59, 59, 999);
+                // 只支持日分组，其他类型暂不支持
+                if (groupType !== 'day') {
+                    throw new Error(`不支持的分组类型: ${groupType}`);
                 }
-
-                return { startDate: startBound, endDate: endBound };
+                
+                const startTime = this.cycleEngine.config.day.start;
+                const timeRange = this.cycleEngine.computeStatisticsTimeRange(startDateStr, endDateStr, startTime);
+                
+                console.log(`📊 计算统计时间范围: ${startDateStr} 到 ${endDateStr}, 齿轮时间: ${startTime}`);
+                console.log(`📊 统计开始: ${timeRange.startTime.toLocaleString()}`);
+                console.log(`📊 统计结束: ${timeRange.endTime.toLocaleString()}`);
+                
+                return { 
+                    startDate: timeRange.startTime, 
+                    endDate: new Date(timeRange.endTime.getTime() - 1) // 减1ms使其为包含性边界
+                };
             }
 
             async generateStatistics() {
@@ -1870,17 +1613,9 @@
                     console.log('📊 开始生成统计结果（基于本地缓存数据）...');
                     
                     const groupType = this.groupBy.value;
-                    
-                    console.log(`🔍 输入的日期范围: ${this.startDate.value} 至 ${this.endDate.value}`);
-                    console.log(`⚙️ 当前配置:`, this.cycleEngine.config);
-                    
                     const range = this.computeDateRangeForGroup(groupType, this.startDate.value, this.endDate.value);
                     const startDate = range.startDate;
                     const endDate = range.endDate;
-                    
-                    console.log(`🔍 计算后的时间范围: ${startDate?.toLocaleString()} 至 ${endDate?.toLocaleString()}`);
-                    console.log(`💾 本地缓存数据总数: ${this.data.length} 条`);
-                    console.log(`⚙️ 当前周期引擎配置:`, this.cycleEngine.config);
 
                     const stats = this.groupDataByCycle(groupType, startDate, endDate);
                     
@@ -1900,136 +1635,97 @@
             }
 
             groupDataByCycle(groupType, startDate, endDate) {
+                // 只支持日分组
+                if (groupType !== 'day') {
+                    throw new Error(`暂不支持分组类型: ${groupType}`);
+                }
+                
                 const groups = {};
                 const { planIdField, startTimeField, taskResultField } = this.fieldMappingValues;
+                const startTime = this.cycleEngine.config.day.start;
                 
-                // 🚨 调试：添加唯一标识符追踪每次调用
-                const callId = Math.random().toString(36).substr(2, 9);
-                console.log(`🚀 [${callId}] 开始按${groupType}分组数据，时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
-                console.log(`🔧 [${callId}] 当前周期配置:`, this.cycleEngine.config);
-                console.log(`📊 [${callId}] 输入数据总数: ${this.data.length} 条`);
+                console.log(`🚀 开始数据分组统计:`);
+                console.log(`📊 时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
+                console.log(`⚙️ 齿轮设置: ${startTime}`);
+                console.log(`📂 输入数据总数: ${this.data.length} 条`);
                 
-                // 调试已移除：配置传递验证通过
-                
-                // 统计时间范围内的数据
                 let dataInRange = 0;
-
-                // 检查数据唯一性
-                const allPlanIds = new Set();
-                const planIdCounts = new Map();
-                this.data.forEach(item => {
-                    const planId = item[planIdField];
-                    allPlanIds.add(planId);
-                    planIdCounts.set(planId, (planIdCounts.get(planId) || 0) + 1);
-                });
-                console.log(`🔍 [${callId}] 数据中唯一计划ID数: ${allPlanIds.size} 个`);
-                
-                // 检查重复的计划ID
-                const duplicatePlanIds = Array.from(planIdCounts.entries()).filter(([id, count]) => count > 1);
-                if (duplicatePlanIds.length > 0) {
-                    console.log(`⚠️ 发现重复的计划ID: ${duplicatePlanIds.length} 个`);
-                    console.log(`📝 重复示例:`, duplicatePlanIds.slice(0, 5));
-                }
-
-                let processedCount = 0;
-                let filteredByTimeCount = 0;
+                let filteredCount = 0;
                 
                 this.data.forEach((item, index) => {
                     try {
+                        // 解析数据时间
                         const timeValue = item[startTimeField];
-                        let date;
+                        let dataTime;
+                        
                         if (timeValue instanceof Date) {
-                            // 已经是日期对象，直接使用文件时间
-                            date = this.cycleEngine.createFileDate(timeValue);
+                            dataTime = new Date(timeValue.getTime());
                         } else if (typeof timeValue === 'string') {
-                            // 字符串日期，严格按文件时间解析（避免时区转换）
-                            date = this.parseFileTime(timeValue);
+                            dataTime = this.parseFileTime(timeValue);
                         } else if (typeof timeValue === 'number') {
-                            // Excel日期数字，转换为文件时间
-                            date = new Date((timeValue - 25569) * 86400000);
+                            dataTime = new Date((timeValue - 25569) * 86400000);
                         } else {
                             return;
                         }
-
-                        if (isNaN(date.getTime())) return;
                         
-                        // 时间范围过滤 - 添加调试
-                        if (startDate && date < startDate) {
-                            filteredByTimeCount++;
-                            if (processedCount < 3) { // 只打印前几个被过滤的数据
-                                console.log(`🚫 过滤(早于开始): ${date.toLocaleString()} < ${startDate.toLocaleString()}`);
-                            }
+                        if (isNaN(dataTime.getTime())) return;
+                        
+                        // 时间范围过滤
+                        if (startDate && dataTime < startDate) {
+                            filteredCount++;
                             return;
                         }
-                        if (endDate && date > endDate) {
-                            filteredByTimeCount++;
-                            if (processedCount < 3) { // 只打印前几个被过滤的数据
-                                console.log(`🚫 过滤(晚于结束): ${date.toLocaleString()} > ${endDate.toLocaleString()}`);
-                            }
+                        if (endDate && dataTime > endDate) {
+                            filteredCount++;
                             return;
-                        }
-                        
-                        // 通过时间过滤的数据 - 添加调试
-                        if (dataInRange < 3) { // 只打印前几个通过的数据
-                            console.log(`✅ 通过时间过滤: ${date.toLocaleString()}`);
                         }
                         
                         dataInRange++;
-
-                        // 获取周期组信息（基于文件时间）
-                        const groupInfo = this.cycleEngine.getGroup(date, groupType);
                         
-                        // 分组逻辑已验证正确
+                        // 判断数据归属哪一日
+                        const belongToDate = this.cycleEngine.getDataBelongToDate(dataTime, startTime);
                         
-                        // 如果该组不存在，则初始化
-                        if (!groups[groupInfo.key]) {
-                            groups[groupInfo.key] = {
-                                key: groupInfo.key,
-                                label: groupInfo.label,
-                                count: 0,
+                        // 初始化分组
+                        if (!groups[belongToDate]) {
+                            const cycleRange = this.cycleEngine.getDayCycleRange(belongToDate, startTime);
+                            groups[belongToDate] = {
+                                key: belongToDate,
+                                label: belongToDate,
                                 planIds: new Set(),
                                 results: [],
-                                rangeStart: groupInfo.rangeStart,
-                                rangeEnd: groupInfo.rangeEnd
+                                rangeStart: cycleRange.rangeStart,
+                                rangeEnd: cycleRange.rangeEnd
                             };
                         }
                         
-                        // 更新组数据
-                        const group = groups[groupInfo.key];
+                        // 添加数据到对应分组
+                        const group = groups[belongToDate];
                         group.planIds.add(item[planIdField]);
-                        group.count = group.planIds.size; // 确保计划ID唯一
                         group.results.push(item[taskResultField] || '未知');
-
-                        processedCount++;
-
+                        
                     } catch (error) {
                         console.warn('处理数据项失败:', item, error);
                     }
                 });
                 
-                // 转换为数组并按时间排序（文件时间顺序）
-                let statsArray = Object.values(groups).sort((a, b) => {
-                    return a.rangeStart - b.rangeStart;
-                });
+                // 转换为数组并排序
+                const statsArray = Object.values(groups)
+                    .map(group => ({
+                        ...group,
+                        count: group.planIds.size,
+                        failureCount: this.taskAnalyzer.countFailures(group.results),
+                        successRate: this.taskAnalyzer.calculateSuccessRate(group.results, group.planIds.size)
+                    }))
+                    .sort((a, b) => a.rangeStart - b.rangeStart);
                 
-                // 注意：不再进行二次过滤，完全依赖于前面的时间边界比较（与index_old.html保持一致）
+                console.log(`📈 统计结果: ${dataInRange} 条数据通过过滤, ${filteredCount} 条被过滤`);
+                console.log(`📊 生成分组数: ${statsArray.length} 个`);
                 
-                // 计算每个周期的失败次数和成功率 - 使用计划ID总数作为分母
+                // 打印各组统计
                 statsArray.forEach(stat => {
-                    stat.failureCount = this.taskAnalyzer.countFailures(stat.results);
-                    // 传入计划ID总数作为第二个参数
-                    stat.successRate = this.taskAnalyzer.calculateSuccessRate(stat.results, stat.count);
+                    console.log(`📋 ${stat.key}: ${stat.count}个计划ID, ${stat.failureCount}个失败, ${stat.successRate.toFixed(1)}%成功率`);
                 });
-
-                console.log(`📈 [${callId}] 时间范围内数据: ${dataInRange} 条, 过滤掉: ${filteredByTimeCount} 条`);
-                console.log(`📊 [${callId}] 最终分组数: ${statsArray.length} 个`);
-                console.log(`🔍 [${callId}] 实际时间范围: ${startDate?.toLocaleString()} ~ ${endDate?.toLocaleString()}`);
                 
-                // 打印各组的计数
-                statsArray.forEach(stat => {
-                    console.log(`📋 [${callId}] ${stat.key}组: ${stat.count}个计划ID, ${stat.failureCount}个失败, ${stat.successRate.toFixed(1)}%成功率`);
-                });
-
                 return statsArray;
             }
 
