@@ -729,23 +729,7 @@
             return '';
         }
 
-        // 时间显示转换函数：将UTC时间转换为北京时间显示（+8小时）
-        function convertToDisplayTime(utcTimeString) {
-            if (!utcTimeString) return '00:00';
-            
-            const [hours, minutes] = utcTimeString.split(':').map(Number);
-            const displayHours = (hours + 8) % 24;
-            return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-        }
-
-        // 显示时间转换为UTC时间：将北京时间转换为UTC时间（-8小时）
-        function convertToUtcTime(displayTimeString) {
-            if (!displayTimeString) return '00:00';
-            
-            const [hours, minutes] = displayTimeString.split(':').map(Number);
-            const utcHours = (hours - 8 + 24) % 24;
-            return `${utcHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-        }
+        // 时间转换函数已删除，不再需要UTC与北京时间转换
 
         // IndexedDB工具类（不变）
         class SatelliteDB {
@@ -1724,8 +1708,8 @@
 
                 const dayStartEl = document.getElementById('dayStart');
                 if (dayStartEl) dayStartEl.addEventListener('change', (e) => {
-                    // 显示北京时间（UTC+8）
-                    const displayTime = convertToDisplayTime(e.target.value);
+                    // 直接显示用户输入的时间，无转换
+                    const displayTime = e.target.value;
                     document.getElementById('dayStartDisplay').textContent = displayTime;
                     document.getElementById('dayEndDisplay').textContent = displayTime;
                 });
@@ -1812,11 +1796,11 @@
                     modalContent.classList.add('scale-100', 'opacity-100');
                 }, 10);
 
-                document.getElementById('dayStart').value = this.cycleEngine.config.day.start;
-                // 显示北京时间（UTC+8）
-                const displayTime = convertToDisplayTime(this.cycleEngine.config.day.start);
-                document.getElementById('dayStartDisplay').textContent = displayTime;
-                document.getElementById('dayEndDisplay').textContent = displayTime;
+                // 直接显示存储的时间，无转换
+                const timeValue = this.cycleEngine.config.day.start;
+                document.getElementById('dayStart').value = timeValue;
+                document.getElementById('dayStartDisplay').textContent = timeValue;
+                document.getElementById('dayEndDisplay').textContent = timeValue;
 
                 document.getElementById('weekStartDay').value = this.cycleEngine.config.week.startDay;
                 document.getElementById('weekStartTime').value = this.cycleEngine.config.week.startTime;
@@ -1843,7 +1827,7 @@
             saveCycleConfig() {
                 const newConfig = {
                     day: {
-                        start: document.getElementById('dayStart').value // 保存UTC时间
+                        start: document.getElementById('dayStart').value // 直接保存用户输入的时间
                     },
                     week: {
                         startDay: parseInt(document.getElementById('weekStartDay').value),
@@ -2083,21 +2067,37 @@
                 return isNaN(fallback.getTime()) ? null : fallback;
             }
 
-            // 将 start/end 的 YYYY-MM-DD 输入映射到严格的用户日期边界（不按周期边界扩展）
+            // 将 start/end 的 YYYY-MM-DD 输入映射到完整周期边界（确保包含完整的X日YY:YY至X+1日YY:YY周期）
             computeDateRangeForGroup(groupType, startDateStr, endDateStr) {
                 let startBound = null;
                 let endBound = null;
 
                 try {
-                    // 直接使用用户指定的日期范围，不扩展到周期边界
-                    if (startDateStr) {
-                        // 开始日期：YYYY-MM-DD 00:00:00
-                        startBound = this.parseToLocalDate(`${startDateStr} 00:00:00`);
-                    }
+                    if (groupType === 'day') {
+                        // 日分组：需要考虑周期起始时间
+                        const cycleStartTime = this.cycleEngine.config.day.start; // 直接使用配置的时间
+                        
+                        if (startDateStr) {
+                            // 开始边界：YYYY-MM-DD + 周期起始时间（UTC）
+                            startBound = this.parseToLocalDate(`${startDateStr} ${cycleStartTime}:00`);
+                        }
 
-                    if (endDateStr) {
-                        // 结束日期：YYYY-MM-DD 23:59:59（包含整天）
-                        endBound = this.parseToLocalDate(`${endDateStr} 23:59:59`);
+                        if (endDateStr) {
+                            // 结束边界：需要延续到第二天的同一时间，确保包含最后一天的完整周期
+                            // 例如：1月7日 -> 1月8日的周期起始时间
+                            const endDate = new Date(endDateStr);
+                            endDate.setDate(endDate.getDate() + 1); // 下一天
+                            const nextDay = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+                            endBound = this.parseToLocalDate(`${nextDay} ${cycleStartTime}:00`);
+                        }
+                    } else {
+                        // 其他分组类型（周、月、季度）保持原有逻辑
+                        if (startDateStr) {
+                            startBound = this.parseToLocalDate(`${startDateStr} 00:00:00`);
+                        }
+                        if (endDateStr) {
+                            endBound = this.parseToLocalDate(`${endDateStr} 23:59:59`);
+                        }
                     }
                 } catch (err) {
                     console.warn('computeDateRangeForGroup failed', err);
@@ -3094,13 +3094,20 @@
                 }, 3000);
             }
 
-            // 更新时间显示为北京时间
+            // 更新时间显示
             updateTimeDisplays() {
                 const dayStartEl = document.getElementById('dayStart');
                 if (dayStartEl && dayStartEl.value) {
-                    const displayTime = convertToDisplayTime(dayStartEl.value);
+                    // 直接显示input中的值，无转换
+                    const displayTime = dayStartEl.value;
                     document.getElementById('dayStartDisplay').textContent = displayTime;
                     document.getElementById('dayEndDisplay').textContent = displayTime;
+                } else {
+                    // 从配置中获取时间并直接显示
+                    const timeValue = this.cycleEngine.config.day.start;
+                    if (dayStartEl) dayStartEl.value = timeValue;
+                    document.getElementById('dayStartDisplay').textContent = timeValue;
+                    document.getElementById('dayEndDisplay').textContent = timeValue;
                 }
             }
         }
