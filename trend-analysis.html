@@ -125,6 +125,14 @@
         <div id="noDataAlert" class="bg-warning/10 text-warning p-4 rounded-lg mb-6 hidden">
             <i class="fa fa-exclamation-circle mr-2"></i>
             <span>请先在首页导入数据，然后再进行趋势分析</span>
+            <div class="mt-3 flex gap-2">
+                <button id="refreshDataBtn" class="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90 transition-colors">
+                    <i class="fa fa-refresh mr-1"></i>刷新数据
+                </button>
+                <a href="index.html" class="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
+                    <i class="fa fa-home mr-1"></i>返回首页
+                </a>
+            </div>
         </div>
 
         <div id="dataStructureAlert" class="bg-warning/10 text-warning p-4 rounded-lg mb-6 hidden">
@@ -695,8 +703,8 @@
         // IndexedDB工具类（不变）
         class SatelliteDB {
             constructor() {
-                this.dbName = 'SatelliteDataDB';
-                this.storeName = 'satelliteData';
+                this.dbName = 'SatelliteDataCache';
+                this.storeName = 'allDataCache';
                 this.db = null;
                 this.initialized = false;
                 this.initPromise = null;
@@ -1541,6 +1549,10 @@
                     '任务类型': []
                 };
 
+                // 监听缓存变化
+                this.lastCacheCheckTime = null;
+                this.cacheCheckInterval = null;
+
                 this.init();
             }
 
@@ -1654,6 +1666,13 @@
                 if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => {
                     document.getElementById('mobileMenu').classList.toggle('hidden');
                 });
+                
+                // 添加数据刷新按钮事件监听
+                const refreshDataBtn = document.getElementById('refreshDataBtn');
+                if (refreshDataBtn) refreshDataBtn.addEventListener('click', () => this.refreshData());
+                
+                // 启动缓存监听
+                this.startCacheMonitoring();
 
                 const dayStartEl = document.getElementById('dayStart');
                 if (dayStartEl) dayStartEl.addEventListener('change', (e) => {
@@ -1812,7 +1831,8 @@
                     });
 
                     this.rawData = rawData;
-                    this.data = rawData[0]?.data || [];
+                    // 从新的缓存结构中获取数据：rawData直接是数据数组
+                    this.data = Array.isArray(rawData) ? rawData : [];
 
                     this.extractFilterValues();
                     this.initializeFilters();
@@ -2885,6 +2905,159 @@
                         }
                     }
                 });
+            }
+
+            // 启动缓存监听
+            startCacheMonitoring() {
+                console.log('🔍 启动IndexedDB缓存监听...');
+                
+                // 获取初始缓存状态
+                this.getCacheLastUpdated().then(time => {
+                    this.lastCacheCheckTime = time;
+                    console.log('📋 初始缓存时间:', time ? new Date(time).toLocaleString() : '未知');
+                });
+
+                // 每3秒检查一次缓存是否有更新
+                this.cacheCheckInterval = setInterval(() => {
+                    this.checkForCacheUpdates();
+                }, 3000);
+            }
+
+            // 停止缓存监听
+            stopCacheMonitoring() {
+                if (this.cacheCheckInterval) {
+                    clearInterval(this.cacheCheckInterval);
+                    this.cacheCheckInterval = null;
+                }
+            }
+
+            // 检查缓存是否有更新
+            async checkForCacheUpdates() {
+                try {
+                    const currentTime = await this.getCacheLastUpdated();
+                    
+                    if (currentTime && this.lastCacheCheckTime && currentTime > this.lastCacheCheckTime) {
+                        console.log('🔄 检测到缓存更新，自动刷新数据...');
+                        console.log('上次检查时间:', new Date(this.lastCacheCheckTime).toLocaleString());
+                        console.log('当前缓存时间:', new Date(currentTime).toLocaleString());
+                        
+                        this.lastCacheCheckTime = currentTime;
+                        await this.reloadData();
+                    }
+                } catch (error) {
+                    console.warn('⚠️ 检查缓存更新失败:', error);
+                }
+            }
+
+            // 获取缓存最后更新时间
+            async getCacheLastUpdated() {
+                try {
+                    await this.db.ensureInitialized();
+                    const transaction = this.db.db.transaction(['metaData'], 'readonly');
+                    const store = transaction.objectStore('metaData');
+                    
+                    return new Promise((resolve) => {
+                        const request = store.get('allDataMeta');
+                        request.onsuccess = () => {
+                            const meta = request.result;
+                            resolve(meta ? meta.lastUpdated : null);
+                        };
+                        request.onerror = () => resolve(null);
+                    });
+                } catch (error) {
+                    console.warn('获取缓存时间失败:', error);
+                    return null;
+                }
+            }
+
+            // 重新加载数据
+            async reloadData() {
+                console.log('🔄 重新加载数据中...');
+                
+                // 显示加载状态
+                const loadingEl = document.getElementById('dbLoading');
+                if (loadingEl) loadingEl.classList.remove('hidden');
+                
+                try {
+                    await this.loadData();
+                    console.log('✅ 数据重载完成');
+                    
+                    // 显示更新提示
+                    this.showUpdateNotification();
+                    
+                } catch (error) {
+                    console.error('❌ 数据重载失败:', error);
+                }
+            }
+
+            // 手动刷新数据
+            async refreshData() {
+                const btn = document.getElementById('refreshDataBtn');
+                if (!btn) return;
+                
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>检查更新...';
+                
+                try {
+                    // 先检查是否有数据
+                    if (await this.db.hasData()) {
+                        // 检查缓存更新
+                        await this.checkForCacheUpdates();
+                        
+                        if (!this.data || this.data.length === 0) {
+                            await this.reloadData();
+                        } else {
+                            // 数据为最新状态
+                            this.showStatusMessage('✅ 数据为最新状态', 'success');
+                        }
+                    } else {
+                        this.showStatusMessage('❌ 暂无数据，请先在首页导入数据', 'warning');
+                    }
+                } catch (error) {
+                    console.error('刷新数据失败:', error);
+                    this.showStatusMessage('❌ 刷新失败: ' + error.message, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            }
+
+            // 显示更新通知
+            showUpdateNotification() {
+                // 创建临时通知元素
+                const notification = document.createElement('div');
+                notification.className = 'fixed top-4 right-4 z-50 bg-success text-white px-4 py-2 rounded-lg shadow-lg';
+                notification.innerHTML = '<i class="fa fa-check-circle mr-2"></i>数据已自动更新';
+                document.body.appendChild(notification);
+                
+                // 3秒后自动消失
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 3000);
+            }
+
+            // 显示状态消息
+            showStatusMessage(message, type = 'info') {
+                const colors = {
+                    success: 'bg-success text-white',
+                    warning: 'bg-warning text-white', 
+                    error: 'bg-danger text-white',
+                    info: 'bg-primary text-white'
+                };
+                
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg ${colors[type] || colors.info}`;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 3000);
             }
         }
 
