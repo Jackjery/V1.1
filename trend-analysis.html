@@ -690,15 +690,44 @@
     </div>
 
     <script>
-        // 字段映射配置
+        // 字段映射配置（支持英文和中文字段名）
         const FIELD_MAPPING = {
+            '客户名称': 'customer',
+            '卫星名称': 'satellite_name', 
+            '测站名称': 'station_name',
+            '任务结果状态': 'task_result',
+            '任务类型': 'task_type',
+            '开始时间': 'start_time'
+        };
+
+        // 字段映射备选方案（向后兼容）
+        const FIELD_MAPPING_FALLBACK = {
             '客户名称': '所属客户',
             '卫星名称': '卫星名称',
-            '测站名称': '测站名称',
+            '测站名称': '测站名称', 
             '任务结果状态': '任务结果状态',
             '任务类型': '任务类型',
             '开始时间': '开始时间'
         };
+
+        // 智能获取字段值的函数
+        function getFieldValue(item, systemField) {
+            if (!item) return '';
+            
+            // 优先使用新的英文字段名
+            const primaryField = FIELD_MAPPING[systemField];
+            if (primaryField && item[primaryField] !== undefined && item[primaryField] !== null) {
+                return item[primaryField];
+            }
+            
+            // 如果英文字段不存在，尝试中文字段名
+            const fallbackField = FIELD_MAPPING_FALLBACK[systemField];
+            if (fallbackField && item[fallbackField] !== undefined && item[fallbackField] !== null) {
+                return item[fallbackField];
+            }
+            
+            return '';
+        }
 
         // IndexedDB工具类（不变）
         class SatelliteDB {
@@ -1856,10 +1885,7 @@
 
                 this.data.forEach(item => {
                     Object.keys(this.filterValues).forEach(systemField => {
-                        const dataField = FIELD_MAPPING[systemField];
-                        if (!dataField) return;
-
-                        const value = (item[dataField] || '').toString().trim();
+                        const value = getFieldValue(item, systemField).toString().trim();
                         if (value && !this.filterValues[systemField].includes(value)) {
                             this.filterValues[systemField].push(value);
                         }
@@ -1895,7 +1921,7 @@
                 // 初始化级联关系
                 this.updateChartFilterOptions();
 
-                if (this.filterValues['客户名称'].length === 0 && this.data.some(item => item[FIELD_MAPPING['客户名称']])) {
+                if (this.filterValues['客户名称'].length === 0 && this.data.some(item => getFieldValue(item, '客户名称'))) {
                     document.getElementById('dataStructureAlert').classList.remove('hidden');
                     document.getElementById('structureMsg').textContent =
                         `已自动映射字段: "${FIELD_MAPPING['客户名称']}" → "客户名称"`;
@@ -1917,12 +1943,12 @@
                     this.data
                         .filter(item => {
                             const matchesStation = !stationValues.length ||
-                                                  stationValues.includes((item[FIELD_MAPPING['测站名称']] || '').toString().trim());
+                                                  stationValues.includes((getFieldValue(item, '测站名称') || '').toString().trim());
                             const matchesCustomer = !customerValues.length ||
-                                                  customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim());
+                                                  customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim());
                             return matchesStation && matchesCustomer;
                         })
-                        .map(item => (item[FIELD_MAPPING['卫星名称']] || '').toString().trim())
+                        .map(item => (getFieldValue(item, '卫星名称') || '').toString().trim())
                         .filter(Boolean)
                 )].sort();
 
@@ -1942,10 +1968,10 @@
 
                 const filteredStatuses = [...new Set(
                     this.data
-                        .filter(item => !stationValues.length || stationValues.includes((item[FIELD_MAPPING['测站名称']] || '').toString().trim()))
-                        .filter(item => !customerValues.length || customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim()))
-                        .filter(item => satelliteValues.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim()))
-                        .map(item => (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim())
+                        .filter(item => !stationValues.length || stationValues.includes((getFieldValue(item, '测站名称') || '').toString().trim()))
+                        .filter(item => !customerValues.length || customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim()))
+                        .filter(item => satelliteValues.includes((getFieldValue(item, '卫星名称') || '').toString().trim()))
+                        .map(item => (getFieldValue(item, '任务结果状态') || '').toString().trim())
                         .filter(Boolean)
                 )].sort();
 
@@ -1966,11 +1992,11 @@
 
                 const filteredTypes = [...new Set(
                     this.data
-                        .filter(item => !stationValues.length || stationValues.includes((item[FIELD_MAPPING['测站名称']] || '').toString().trim()))
-                        .filter(item => !customerValues.length || customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim()))
-                        .filter(item => !satelliteValues.length || satelliteValues.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim()))
-                        .filter(item => statusValues.includes((item[FIELD_MAPPING['任务结果状态']] || '').toString().trim()))
-                        .map(item => (item[FIELD_MAPPING['任务类型']] || '').toString().trim())
+                        .filter(item => !stationValues.length || stationValues.includes((getFieldValue(item, '测站名称') || '').toString().trim()))
+                        .filter(item => !customerValues.length || customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim()))
+                        .filter(item => !satelliteValues.length || satelliteValues.includes((getFieldValue(item, '卫星名称') || '').toString().trim()))
+                        .filter(item => statusValues.includes((getFieldValue(item, '任务结果状态') || '').toString().trim()))
+                        .map(item => (getFieldValue(item, '任务类型') || '').toString().trim())
                         .filter(Boolean)
                 )].sort();
 
@@ -2110,27 +2136,27 @@
                     if (endBound && itemDate > endBound) return false;
 
                     // 测站
-                    if (stationValues.length && !stationValues.includes((item[FIELD_MAPPING['测站名称']] || '').toString().trim())) {
+                    if (stationValues.length && !stationValues.includes((getFieldValue(item, '测站名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 客户
-                    if (customerValues.length && !customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim())) {
+                    if (customerValues.length && !customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 卫星
-                    if (satelliteValues.length && !satelliteValues.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim())) {
+                    if (satelliteValues.length && !satelliteValues.includes((getFieldValue(item, '卫星名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 状态
-                    if (statusValues.length && !statusValues.includes((item[FIELD_MAPPING['任务结果状态']] || '').toString().trim())) {
+                    if (statusValues.length && !statusValues.includes((getFieldValue(item, '任务结果状态') || '').toString().trim())) {
                         return false;
                     }
 
                     // 类型
-                    if (typeValues.length && !typeValues.includes((item[FIELD_MAPPING['任务类型']] || '').toString().trim())) {
+                    if (typeValues.length && !typeValues.includes((getFieldValue(item, '任务类型') || '').toString().trim())) {
                         return false;
                     }
 
@@ -2178,7 +2204,7 @@
                 }
 
                 const categories = [...new Set(
-                    dataToUse.map(item => (item[FIELD_MAPPING[categoryField]] || '').toString().trim()).filter(Boolean)
+                    dataToUse.map(item => getFieldValue(item, categoryField).toString().trim()).filter(Boolean)
                 )];
 
                 const xLabels = groupedResult.sortedKeys.map(key =>
@@ -2189,7 +2215,7 @@
                     label: category,
                     data: groupedResult.sortedKeys.map(key =>
                         groupedResult.groups[key].filter(item =>
-                            (item[FIELD_MAPPING[categoryField]] || '').toString().trim() === category
+                            getFieldValue(item, categoryField).toString().trim() === category
                         ).length
                     )
                 }));
@@ -2387,8 +2413,8 @@
 
                 // 更新卫星图表的筛选选项（基于已选择的测站和客户）
                 const filteredForSatellite = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
                     
                     if (stationValues.length && !stationValues.includes(itemStation)) return false;
                     if (customerValues.length && !customerValues.includes(itemCustomer)) return false;
@@ -2397,7 +2423,7 @@
                 });
 
                 const availableSatellites = [...new Set(
-                    filteredForSatellite.map(item => (item[FIELD_MAPPING['卫星名称']] || '').toString().trim()).filter(Boolean)
+                    filteredForSatellite.map(item => (getFieldValue(item, '卫星名称') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const satelliteOptions = availableSatellites.map(satellite => ({ value: satellite, label: satellite }));
@@ -2405,9 +2431,9 @@
 
                 // 更新状态图表的筛选选项（基于测站、客户、卫星）
                 const filteredForStatus = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
-                    const itemSatellite = (item[FIELD_MAPPING['卫星名称']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
+                    const itemSatellite = (getFieldValue(item, '卫星名称') || '').toString().trim();
                     
                     if (stationValues.length && !stationValues.includes(itemStation)) return false;
                     if (customerValues.length && !customerValues.includes(itemCustomer)) return false;
@@ -2417,7 +2443,7 @@
                 });
 
                 const availableStatuses = [...new Set(
-                    filteredForStatus.map(item => (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim()).filter(Boolean)
+                    filteredForStatus.map(item => (getFieldValue(item, '任务结果状态') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const statusOptions = availableStatuses.map(status => ({ value: status, label: status }));
@@ -2425,10 +2451,10 @@
 
                 // 更新类型图表的筛选选项（基于测站、客户、卫星、状态）
                 const filteredForType = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
-                    const itemSatellite = (item[FIELD_MAPPING['卫星名称']] || '').toString().trim();
-                    const itemStatus = (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
+                    const itemSatellite = (getFieldValue(item, '卫星名称') || '').toString().trim();
+                    const itemStatus = (getFieldValue(item, '任务结果状态') || '').toString().trim();
                     
                     if (stationValues.length && !stationValues.includes(itemStation)) return false;
                     if (customerValues.length && !customerValues.includes(itemCustomer)) return false;
@@ -2439,7 +2465,7 @@
                 });
 
                 const availableTypes = [...new Set(
-                    filteredForType.map(item => (item[FIELD_MAPPING['任务类型']] || '').toString().trim()).filter(Boolean)
+                    filteredForType.map(item => (getFieldValue(item, '任务类型') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const typeOptions = availableTypes.map(type => ({ value: type, label: type }));
@@ -2466,15 +2492,15 @@
                 const effectiveCustomerValues = chartCustomerValues.length > 0 ? chartCustomerValues : topCustomerValues;
 
                 const filteredForSatellite = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
                     
                     // 应用顶部筛选条件
                     if (topStationValues.length && !topStationValues.includes(itemStation)) return false;
                     if (topCustomerValues.length && !topCustomerValues.includes(itemCustomer)) return false;
-                    if (topSatelliteValues.length && !topSatelliteValues.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim())) return false;
-                    if (topStatusValues.length && !topStatusValues.includes((item[FIELD_MAPPING['任务结果状态']] || '').toString().trim())) return false;
-                    if (topTypeValues.length && !topTypeValues.includes((item[FIELD_MAPPING['任务类型']] || '').toString().trim())) return false;
+                    if (topSatelliteValues.length && !topSatelliteValues.includes((getFieldValue(item, '卫星名称') || '').toString().trim())) return false;
+                    if (topStatusValues.length && !topStatusValues.includes((getFieldValue(item, '任务结果状态') || '').toString().trim())) return false;
+                    if (topTypeValues.length && !topTypeValues.includes((getFieldValue(item, '任务类型') || '').toString().trim())) return false;
                     
                     // 应用图表专用筛选条件
                     if (effectiveStationValues.length && !effectiveStationValues.includes(itemStation)) return false;
@@ -2484,7 +2510,7 @@
                 });
 
                 const availableSatellites = [...new Set(
-                    filteredForSatellite.map(item => (item[FIELD_MAPPING['卫星名称']] || '').toString().trim()).filter(Boolean)
+                    filteredForSatellite.map(item => (getFieldValue(item, '卫星名称') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const satelliteOptions = availableSatellites.map(satellite => ({ value: satellite, label: satellite }));
@@ -2504,9 +2530,9 @@
 
                 // 根据顶部筛选条件（测站、客户、卫星）过滤数据，为状态图表提供可选的状态选项
                 const filteredForStatus = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
-                    const itemSatellite = (item[FIELD_MAPPING['卫星名称']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
+                    const itemSatellite = (getFieldValue(item, '卫星名称') || '').toString().trim();
 
                     // 应用顶部筛选条件：测站、客户、卫星的级联筛选
                     return (!topStationValues.length || topStationValues.includes(itemStation)) &&
@@ -2516,7 +2542,7 @@
 
                 // 获取过滤后的可选状态
                 const availableStatuses = [...new Set(
-                    filteredForStatus.map(item => (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim()).filter(Boolean)
+                    filteredForStatus.map(item => (getFieldValue(item, '任务结果状态') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const statusOptions = availableStatuses.map(status => ({ value: status, label: status }));
@@ -2548,10 +2574,10 @@
 
                 // 根据顶部筛选条件和底部状态选择过滤数据，为类型图表提供可选的类型选项
                 const filteredForType = this.data.filter(item => {
-                    const itemStation = (item[FIELD_MAPPING['测站名称']] || '').toString().trim();
-                    const itemCustomer = (item[FIELD_MAPPING['客户名称']] || '').toString().trim();
-                    const itemSatellite = (item[FIELD_MAPPING['卫星名称']] || '').toString().trim();
-                    const itemStatus = (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim();
+                    const itemStation = (getFieldValue(item, '测站名称') || '').toString().trim();
+                    const itemCustomer = (getFieldValue(item, '客户名称') || '').toString().trim();
+                    const itemSatellite = (getFieldValue(item, '卫星名称') || '').toString().trim();
+                    const itemStatus = (getFieldValue(item, '任务结果状态') || '').toString().trim();
 
                     // 应用顶部筛选条件：测站、客户、卫星、状态的级联筛选
                     let passTopFilter = (!topStationValues.length || topStationValues.includes(itemStation)) &&
@@ -2569,7 +2595,7 @@
 
                 // 获取过滤后的可选类型
                 const availableTypes = [...new Set(
-                    filteredForType.map(item => (item[FIELD_MAPPING['任务类型']] || '').toString().trim()).filter(Boolean)
+                    filteredForType.map(item => (getFieldValue(item, '任务类型') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
                 const typeOptions = availableTypes.map(type => ({ value: type, label: type }));
@@ -2609,12 +2635,12 @@
                     
                     if (customerValues.length > 0) {
                         filteredData = filteredData.filter(item => 
-                            customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim())
+                            customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim())
                         );
                         
                         // 更新卫星选项
                         const availableSatellites = [...new Set(
-                            filteredData.map(item => (item[FIELD_MAPPING['卫星名称']] || '').toString().trim()).filter(Boolean)
+                            filteredData.map(item => (getFieldValue(item, '卫星名称') || '').toString().trim()).filter(Boolean)
                         )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
                         
                         const satelliteOptions = availableSatellites.map(satellite => ({ value: satellite, label: satellite }));
@@ -2643,14 +2669,14 @@
                     
                     if (satelliteValues.length > 0) {
                         filteredData = filteredData.filter(item => 
-                            satelliteValues.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim())
+                            satelliteValues.includes((getFieldValue(item, '卫星名称') || '').toString().trim())
                         );
                         
                         // 如果客户图表也有选择，需要同时考虑
                         const customerValues = this.customerChartSelect.getSelectedValues();
                         if (customerValues.length > 0) {
                             filteredData = filteredData.filter(item => 
-                                customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim())
+                                customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim())
                             );
                         }
                     } else {
@@ -2658,7 +2684,7 @@
                         const customerValues = this.customerChartSelect.getSelectedValues();
                         if (customerValues.length > 0) {
                             filteredData = filteredData.filter(item => 
-                                customerValues.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim())
+                                customerValues.includes((getFieldValue(item, '客户名称') || '').toString().trim())
                             );
                         }
                     }
@@ -2671,7 +2697,7 @@
             updateStatusAndTypeOptions(filteredData) {
                 // 更新状态选项
                 const availableStatuses = [...new Set(
-                    filteredData.map(item => (item[FIELD_MAPPING['任务结果状态']] || '').toString().trim()).filter(Boolean)
+                    filteredData.map(item => (getFieldValue(item, '任务结果状态') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
                 
                 const statusOptions = availableStatuses.map(status => ({ value: status, label: status }));
@@ -2679,7 +2705,7 @@
                 
                 // 更新类型选项
                 const availableTypes = [...new Set(
-                    filteredData.map(item => (item[FIELD_MAPPING['任务类型']] || '').toString().trim()).filter(Boolean)
+                    filteredData.map(item => (getFieldValue(item, '任务类型') || '').toString().trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
                 
                 const typeOptions = availableTypes.map(type => ({ value: type, label: type }));
@@ -2735,27 +2761,27 @@
                     if (endBound && itemDate > endBound) return false;
 
                     // 测站筛选
-                    if (stations.length && !stations.includes((item[FIELD_MAPPING['测站名称']] || '').toString().trim())) {
+                    if (stations.length && !stations.includes((getFieldValue(item, '测站名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 客户筛选
-                    if (customers.length && !customers.includes((item[FIELD_MAPPING['客户名称']] || '').toString().trim())) {
+                    if (customers.length && !customers.includes((getFieldValue(item, '客户名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 卫星筛选
-                    if (satellites.length && !satellites.includes((item[FIELD_MAPPING['卫星名称']] || '').toString().trim())) {
+                    if (satellites.length && !satellites.includes((getFieldValue(item, '卫星名称') || '').toString().trim())) {
                         return false;
                     }
 
                     // 状态筛选
-                    if (statuses.length && !statuses.includes((item[FIELD_MAPPING['任务结果状态']] || '').toString().trim())) {
+                    if (statuses.length && !statuses.includes((getFieldValue(item, '任务结果状态') || '').toString().trim())) {
                         return false;
                     }
 
                     // 类型筛选
-                    if (types.length && !types.includes((item[FIELD_MAPPING['任务类型']] || '').toString().trim())) {
+                    if (types.length && !types.includes((getFieldValue(item, '任务类型') || '').toString().trim())) {
                         return false;
                     }
 
@@ -2787,7 +2813,7 @@
                 }
 
                 const categories = [...new Set(
-                    dataToUse.map(item => (item[FIELD_MAPPING[categoryField]] || '').toString().trim()).filter(Boolean)
+                    dataToUse.map(item => getFieldValue(item, categoryField).toString().trim()).filter(Boolean)
                 )];
 
                 const xLabels = groupedResult.sortedKeys.map(key =>
@@ -2798,7 +2824,7 @@
                     label: category,
                     data: groupedResult.sortedKeys.map(key =>
                         groupedResult.groups[key].filter(item =>
-                            (item[FIELD_MAPPING[categoryField]] || '').toString().trim() === category
+                            getFieldValue(item, categoryField).toString().trim() === category
                         ).length
                     )
                 }));
