@@ -449,15 +449,44 @@
     </main>
 
     <script>
-        // 字段映射配置
+        // 字段映射配置（支持英文和中文字段名）
         const FIELD_MAPPING = {
+            '客户名称': 'customer',
+            '卫星名称': 'satellite_name', 
+            '测站名称': 'station_name',
+            '任务结果状态': 'task_result',
+            '任务类型': 'task_type',
+            '开始时间': 'start_time'
+        };
+
+        // 字段映射备选方案（向后兼容）
+        const FIELD_MAPPING_FALLBACK = {
             '客户名称': '所属客户',
             '卫星名称': '卫星名称',
-            '测站名称': '测站名称',
+            '测站名称': '测站名称', 
             '任务结果状态': '任务结果状态',
             '任务类型': '任务类型',
             '开始时间': '开始时间'
         };
+
+        // 智能获取字段值的函数
+        function getFieldValue(item, systemField) {
+            if (!item) return '';
+            
+            // 优先使用新的英文字段名
+            const primaryField = FIELD_MAPPING[systemField];
+            if (primaryField && item[primaryField] !== undefined && item[primaryField] !== null) {
+                return item[primaryField];
+            }
+            
+            // 如果英文字段不存在，尝试中文字段名
+            const fallbackField = FIELD_MAPPING_FALLBACK[systemField];
+            if (fallbackField && item[fallbackField] !== undefined && item[fallbackField] !== null) {
+                return item[fallbackField];
+            }
+            
+            return '';
+        }
 
         // ==================== IndexedDB缓存管理器（从index.html复制） ====================
         
@@ -635,7 +664,7 @@
 
                 // 筛选基期数据 - 严格按北京时间处理
                 const baseData = data.filter(item => {
-                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    const rawTime = getFieldValue(item, '开始时间');
                     if (!rawTime) return false;
                     
                     let itemDate;
@@ -652,7 +681,7 @@
 
                 // 筛选现期数据 - 严格按北京时间处理
                 const currentData = data.filter(item => {
-                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    const rawTime = getFieldValue(item, '开始时间');
                     if (!rawTime) return false;
                     
                     let itemDate;
@@ -724,15 +753,15 @@
 
                 data.forEach(item => {
                     // 统计测站
-                    const station = item[FIELD_MAPPING['测站名称']]?.toString().trim() || '未知';
+                    const station = getFieldValue(item, '测站名称')?.toString().trim() || '未知';
                     stationCounts[station] = (stationCounts[station] || 0) + 1;
 
                     // 统计客户
-                    const customer = item[FIELD_MAPPING['客户名称']]?.toString().trim() || '未知';
+                    const customer = getFieldValue(item, '客户名称')?.toString().trim() || '未知';
                     customerCounts[customer] = (customerCounts[customer] || 0) + 1;
 
                     // 统计卫星
-                    const satellite = item[FIELD_MAPPING['卫星名称']]?.toString().trim() || '未知';
+                    const satellite = getFieldValue(item, '卫星名称')?.toString().trim() || '未知';
                     satelliteCounts[satellite] = (satelliteCounts[satellite] || 0) + 1;
                 });
 
@@ -921,6 +950,10 @@
                     satellite: []
                 };
 
+                // 缓存监听相关
+                this.lastCacheCheckTime = null;
+                this.cacheMonitoringInterval = null;
+
                 this.init();
             }
 
@@ -928,6 +961,9 @@
                 this.setupEventListeners();
                 this.setDefaultPeriods();
                 await this.loadData();
+                
+                // 启动缓存监听
+                this.startCacheMonitoring();
             }
 
             setupEventListeners() {
@@ -1215,6 +1251,63 @@
                     // 恢复按钮状态
                     calculateBtn.disabled = false;
                     calculateBtn.innerHTML = originalBtnText;
+                }
+            }
+
+            // 启动缓存监听
+            startCacheMonitoring() {
+                console.log('🔍 启动IndexedDB缓存监听...');
+                
+                // 获取初始缓存状态
+                this.getCacheLastUpdated().then(time => {
+                    this.lastCacheCheckTime = time;
+                    console.log('📋 初始缓存时间:', time ? new Date(time).toLocaleString() : '未知');
+                });
+
+                // 每3秒检查一次缓存是否有更新
+                this.cacheMonitoringInterval = setInterval(async () => {
+                    const currentTime = await this.getCacheLastUpdated();
+                    
+                    if (currentTime && this.lastCacheCheckTime && currentTime > this.lastCacheCheckTime) {
+                        console.log('🔄 检测到缓存更新，自动刷新数据...');
+                        console.log('上次检查时间:', new Date(this.lastCacheCheckTime).toLocaleString());
+                        console.log('当前缓存时间:', new Date(currentTime).toLocaleString());
+                        
+                        this.lastCacheCheckTime = currentTime;
+                        await this.reloadData();
+                    }
+                }, 3000);
+            }
+
+            // 重新加载数据
+            async reloadData() {
+                try {
+                    await this.loadData();
+                    console.log('✅ 缓存监听：数据重新加载完成');
+                } catch (error) {
+                    console.error('❌ 缓存监听：重新加载数据失败:', error);
+                }
+            }
+
+            // 获取缓存最后更新时间
+            async getCacheLastUpdated() {
+                try {
+                    await this.cacheManager.db.ensureInitialized();
+                    return new Promise((resolve) => {
+                        const transaction = this.cacheManager.db.db.transaction(['metadata'], 'readonly');
+                        const store = transaction.objectStore('metadata');
+                        const request = store.get('cache_last_updated');
+
+                        request.onsuccess = () => {
+                            const result = request.result;
+                            resolve(result ? result.timestamp : null);
+                        };
+
+                        request.onerror = () => resolve(null);
+                    });
+                } catch (error) {
+                    console.warn('获取缓存时间失败:', error);
+                    return null;
                 }
             }
         }
