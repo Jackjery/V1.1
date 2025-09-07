@@ -704,17 +704,60 @@
                             borderWidth: 1,
                             borderColor: '#ffffff',
                             datalabels: {
-                                display: showLabels,
-                                color: '#ffffff',
+                                display: function(context) {
+                                    // 动态检查复选框状态
+                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
+                                    const showLabels = showDataLabelsCheckbox?.checked || false;
+                                    return showLabels && context.parsed > 0;
+                                },
+                                color: function(context) {
+                                    // 动态计算文本颜色 - 如果数据点太小，使用外部显示
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? context.dataset.borderColor : '#ffffff';
+                                },
                                 font: {
-                                    size: 12,
+                                    size: 11,
                                     weight: 'bold'
+                                },
+                                anchor: function(context) {
+                                    // 小分片使用外部显示
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? 'end' : 'center';
+                                },
+                                align: function(context) {
+                                    // 小分片使用外部显示
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? 'end' : 'center';
+                                },
+                                offset: function(context) {
+                                    // 小分片增加偏移距离
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? 10 : 0;
                                 },
                                 formatter: function(value, context) {
                                     if (!showLabels || value <= 0) return '';
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = ((value / total) * 100).toFixed(1);
+                                    // 对于小分片，只显示百分比
+                                    if (percentage < 5) {
+                                        return `${percentage}%`;
+                                    }
                                     return `${value}\n(${percentage}%)`;
+                                },
+                                textStrokeColor: function(context) {
+                                    // 为外部文本添加描边以提高可读性
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? '#ffffff' : 'transparent';
+                                },
+                                textStrokeWidth: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 5 ? 2 : 0;
                                 }
                             }
                         }]
@@ -724,7 +767,10 @@
                         maintainAspectRatio: false,
                         plugins: {
                             datalabels: {
-                                display: showLabels
+                                display: function(context) {
+                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
+                                    return showDataLabelsCheckbox?.checked || false;
+                                }
                             },
                             title: {
                                 display: true,
@@ -820,6 +866,8 @@
                     }
                 }
 
+                const isLargeDataset = optimizedLabels.length > 15;
+
                 const styledDatasets = optimizedDatasets.map((dataset, i) => ({
                     label: dataset.label,
                     data: dataset.data,
@@ -827,7 +875,12 @@
                     borderColor: this.colors[i % this.colors.length],
                     borderWidth: 1,
                     datalabels: {
-                        display: showLabels && !isLargeDataset,
+                        display: function(context) {
+                            // 动态检查复选框状态
+                            const showDataLabelsCheckbox = document.getElementById('showDataLabels');
+                            const showLabels = showDataLabelsCheckbox?.checked || false;
+                            return showLabels && !isLargeDataset && context.parsed.y > 0;
+                        },
                         color: this.colors[i % this.colors.length],
                         anchor: 'end',
                         align: 'top',
@@ -840,8 +893,6 @@
                         }
                     }
                 }));
-
-                const isLargeDataset = optimizedLabels.length > 15;
 
                 // 注册数据标签插件
                 Chart.register(ChartDataLabels);
@@ -857,7 +908,11 @@
                         maintainAspectRatio: false,
                         plugins: {
                             datalabels: {
-                                display: showLabels && !isLargeDataset
+                                display: function(context) {
+                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
+                                    const showLabels = showDataLabelsCheckbox?.checked || false;
+                                    return showLabels && !isLargeDataset;
+                                }
                             },
                             title: {
                                 display: true,
@@ -1084,12 +1139,13 @@
                 if (showDataLabelsCheckbox) {
                     showDataLabelsCheckbox.addEventListener('change', () => {
                         if (this.filteredData && this.filteredData.length > 0) {
-                            // 重新生成所有图表
-                            this.generateCustomerPieChart();
-                            this.generateCustomerBarChart();
-                            this.generateStationBarChart();
-                            this.updateCustomerSatelliteChart();
-                            this.updateCustomerStationPreferenceCharts();
+                            // 更新所有现有图表的数据标签显示
+                            Object.keys(this.chartGenerator.charts).forEach(chartId => {
+                                const chart = this.chartGenerator.charts[chartId];
+                                if (chart) {
+                                    chart.update('none'); // 不使用动画，立即更新
+                                }
+                            });
                         }
                     });
                 }
