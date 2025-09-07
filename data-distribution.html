@@ -634,6 +634,14 @@
                 ];
                 this.maxSlices = 15; // 饼图最大分片数
                 this.maxBars = 30; // 柱状图最大柱数
+                
+                // 一次性注册数据标签插件
+                try {
+                    Chart.register(ChartDataLabels);
+                    console.log('✅ ChartDataLabels插件注册成功');
+                } catch (error) {
+                    console.error('❌ ChartDataLabels插件注册失败:', error);
+                }
             }
 
             destroyChart(chartId) {
@@ -649,9 +657,13 @@
 
             // 生成饼图 - 大数据集优化版本
             generatePieChart(chartId, title, labels, data) {
+                console.log(`🎨 开始生成饼图 ${chartId}:`, { title, labels, data });
                 this.destroyChart(chartId);
                 const ctxEl = document.getElementById(chartId);
-                if (!ctxEl) return null;
+                if (!ctxEl) {
+                    console.error(`❌ 找不到图表容器: ${chartId}`);
+                    return null;
+                }
                 const ctx = ctxEl.getContext('2d');
                 const emptyState = document.getElementById(`${chartId}Empty`);
                 
@@ -691,11 +703,10 @@
                     optimizedData = topSlices.map(item => item.value);
                 }
 
-                // 注册数据标签插件
-                Chart.register(ChartDataLabels);
-
-                const chart = new Chart(ctx, {
-                    type: 'pie',
+                let chart;
+                try {
+                    chart = new Chart(ctx, {
+                        type: 'pie',
                     data: {
                         labels: optimizedLabels,
                         datasets: [{
@@ -704,12 +715,7 @@
                             borderWidth: 1,
                             borderColor: '#ffffff',
                             datalabels: {
-                                display: function(context) {
-                                    // 动态检查复选框状态
-                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
-                                    const showLabels = showDataLabelsCheckbox?.checked || false;
-                                    return showLabels && context.parsed > 0;
-                                },
+                                display: showLabels,
                                 color: function(context) {
                                     // 动态计算文本颜色 - 如果数据点太小，使用外部显示
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
@@ -767,10 +773,7 @@
                         maintainAspectRatio: false,
                         plugins: {
                             datalabels: {
-                                display: function(context) {
-                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
-                                    return showDataLabelsCheckbox?.checked || false;
-                                }
+                                display: showLabels
                             },
                             title: {
                                 display: true,
@@ -804,9 +807,14 @@
                             duration: labels.length > this.maxSlices ? 500 : 1000 // 大数据集时减少动画时间
                         }
                     }
-                });
+                    });
 
-                this.charts[chartId] = chart;
+                    this.charts[chartId] = chart;
+                    console.log(`✅ 饼图 ${chartId} 创建成功`);
+                } catch (error) {
+                    console.error(`❌ 饼图 ${chartId} 创建失败:`, error);
+                    return null;
+                }
                 
                 // 显示优化提示
                 if (labels.length > this.maxSlices) {
@@ -821,9 +829,13 @@
 
             // 生成条形图 - 大数据集优化版本
             generateBarChart(chartId, title, labels, datasets) {
+                console.log(`📊 开始生成条形图 ${chartId}:`, { title, labels, datasets });
                 this.destroyChart(chartId);
                 const ctxEl = document.getElementById(chartId);
-                if (!ctxEl) return null;
+                if (!ctxEl) {
+                    console.error(`❌ 找不到图表容器: ${chartId}`);
+                    return null;
+                }
                 const ctx = ctxEl.getContext('2d');
                 const emptyState = document.getElementById(`${chartId}Empty`);
                 
@@ -868,20 +880,16 @@
 
                 const isLargeDataset = optimizedLabels.length > 15;
 
+                const colors = this.colors; // 保存引用避免作用域问题
                 const styledDatasets = optimizedDatasets.map((dataset, i) => ({
                     label: dataset.label,
                     data: dataset.data,
-                    backgroundColor: this.colors[i % this.colors.length] + '80',
-                    borderColor: this.colors[i % this.colors.length],
+                    backgroundColor: colors[i % colors.length] + '80',
+                    borderColor: colors[i % colors.length],
                     borderWidth: 1,
                     datalabels: {
-                        display: function(context) {
-                            // 动态检查复选框状态
-                            const showDataLabelsCheckbox = document.getElementById('showDataLabels');
-                            const showLabels = showDataLabelsCheckbox?.checked || false;
-                            return showLabels && !isLargeDataset && context.parsed.y > 0;
-                        },
-                        color: this.colors[i % this.colors.length],
+                        display: showLabels && !isLargeDataset,
+                        color: colors[i % colors.length],
                         anchor: 'end',
                         align: 'top',
                         font: {
@@ -894,11 +902,10 @@
                     }
                 }));
 
-                // 注册数据标签插件
-                Chart.register(ChartDataLabels);
-
-                const chart = new Chart(ctx, {
-                    type: 'bar',
+                let chart;
+                try {
+                    chart = new Chart(ctx, {
+                        type: 'bar',
                     data: {
                         labels: optimizedLabels,
                         datasets: styledDatasets
@@ -908,11 +915,7 @@
                         maintainAspectRatio: false,
                         plugins: {
                             datalabels: {
-                                display: function(context) {
-                                    const showDataLabelsCheckbox = document.getElementById('showDataLabels');
-                                    const showLabels = showDataLabelsCheckbox?.checked || false;
-                                    return showLabels && !isLargeDataset;
-                                }
+                                display: showLabels && !isLargeDataset
                             },
                             title: {
                                 display: true,
@@ -964,9 +967,14 @@
                         parsing: isLargeDataset ? false : true,
                         normalized: isLargeDataset ? true : false
                     }
-                });
+                    });
 
-                this.charts[chartId] = chart;
+                    this.charts[chartId] = chart;
+                    console.log(`✅ 条形图 ${chartId} 创建成功`);
+                } catch (error) {
+                    console.error(`❌ 条形图 ${chartId} 创建失败:`, error);
+                    return null;
+                }
                 
                 // 显示优化提示
                 if (labels.length > this.maxBars) {
@@ -1139,13 +1147,9 @@
                 if (showDataLabelsCheckbox) {
                     showDataLabelsCheckbox.addEventListener('change', () => {
                         if (this.filteredData && this.filteredData.length > 0) {
-                            // 更新所有现有图表的数据标签显示
-                            Object.keys(this.chartGenerator.charts).forEach(chartId => {
-                                const chart = this.chartGenerator.charts[chartId];
-                                if (chart) {
-                                    chart.update('none'); // 不使用动画，立即更新
-                                }
-                            });
+                            console.log('🏷️ 切换数据标签显示:', showDataLabelsCheckbox.checked);
+                            // 重新生成所有图表以确保数据标签正确显示
+                            this.generateAllCharts();
                         }
                     });
                 }
@@ -1787,7 +1791,9 @@
                 const labels = Object.keys(customerCounts);
                 const data = Object.values(customerCounts);
 
-                this.chartGenerator.generatePieChart('customerPieChart', '各客户跟踪圈次占比', labels, data);
+                console.log('🥧 饼图数据:', { labels, data, counts: customerCounts });
+                const result = this.chartGenerator.generatePieChart('customerPieChart', '各客户跟踪圈次占比', labels, data);
+                console.log('🥧 饼图生成结果:', result ? '成功' : '失败');
             }
 
             // 生成客户圈次数量条形图
@@ -1805,7 +1811,9 @@
                     data: sortedCustomers.map(customer => customerCounts[customer])
                 }];
 
-                this.chartGenerator.generateBarChart('customerBarChart', '各客户跟踪圈次数量', labels, datasets);
+                console.log('📊 客户条形图数据:', { labels, datasets, counts: customerCounts });
+                const result = this.chartGenerator.generateBarChart('customerBarChart', '各客户跟踪圈次数量', labels, datasets);
+                console.log('📊 客户条形图生成结果:', result ? '成功' : '失败');
             }
 
             // 生成测站圈次数量条形图
@@ -1823,7 +1831,9 @@
                     data: sortedStations.map(station => stationCounts[station])
                 }];
 
-                this.chartGenerator.generateBarChart('stationBarChart', '各测站跟踪圈次数量', labels, datasets);
+                console.log('📊 测站条形图数据:', { labels, datasets, counts: stationCounts });
+                const result = this.chartGenerator.generateBarChart('stationBarChart', '各测站跟踪圈次数量', labels, datasets);
+                console.log('📊 测站条形图生成结果:', result ? '成功' : '失败');
             }
 
             // 更新客户-卫星分布条形图
