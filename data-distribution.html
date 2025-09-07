@@ -429,15 +429,44 @@
     </main>
 
     <script>
-        // 字段映射配置
+        // 字段映射配置（支持英文和中文字段名）
         const FIELD_MAPPING = {
+            '客户名称': 'customer',
+            '卫星名称': 'satellite_name', 
+            '测站名称': 'station_name',
+            '任务结果状态': 'task_result',
+            '任务类型': 'task_type',
+            '开始时间': 'start_time'
+        };
+
+        // 字段映射备选方案（向后兼容）
+        const FIELD_MAPPING_FALLBACK = {
             '客户名称': '所属客户',
             '卫星名称': '卫星名称',
-            '测站名称': '测站名称',
+            '测站名称': '测站名称', 
             '任务结果状态': '任务结果状态',
             '任务类型': '任务类型',
             '开始时间': '开始时间'
         };
+
+        // 智能获取字段值的函数
+        function getFieldValue(item, systemField) {
+            if (!item) return '';
+            
+            // 优先使用新的英文字段名
+            const primaryField = FIELD_MAPPING[systemField];
+            if (primaryField && item[primaryField] !== undefined && item[primaryField] !== null) {
+                return item[primaryField];
+            }
+            
+            // 如果英文字段不存在，尝试中文字段名
+            const fallbackField = FIELD_MAPPING_FALLBACK[systemField];
+            if (fallbackField && item[fallbackField] !== undefined && item[fallbackField] !== null) {
+                return item[fallbackField];
+            }
+            
+            return '';
+        }
 
         // ==================== IndexedDB缓存管理器（从index.html复制） ====================
         
@@ -1027,6 +1056,10 @@
                 this.isDropdownOpen = false;
                 this.isStationPreferenceDropdownOpen = false;
 
+                // 缓存监听相关
+                this.lastCacheCheckTime = null;
+                this.cacheMonitoringInterval = null;
+
                 this.init();
             }
 
@@ -1036,6 +1069,9 @@
                 this.setDefaultDateTimeRange();
                 this.addDebugButtons();
                 this.bindDownloadButtons(); // bind download handlers
+                
+                // 启动缓存监听
+                this.startCacheMonitoring();
             }
 
             setupEventListeners() {
@@ -1349,7 +1385,7 @@
             initializeCustomerOptions() {
                 // 获取所有客户
                 this.allCustomers = [...new Set(
-                    this.data.map(item => item[FIELD_MAPPING['客户名称']]?.toString().trim()).filter(Boolean)
+                    this.data.map(item => getFieldValue(item, '客户名称')?.toString().trim()).filter(Boolean)
                 )].sort();
 
                 // 清空现有选项
@@ -1533,7 +1569,7 @@
 
                 // 应用筛选 - 严格按照北京时间进行时间扫描计数
                 this.filteredData = this.data.filter(item => {
-                    const rawTime = item[FIELD_MAPPING['开始时间']];
+                    const rawTime = getFieldValue(item, '开始时间');
                     if (!rawTime) return false;
                     
                     // 严格按照北京时间解析时间
@@ -1566,7 +1602,7 @@
             // 基于筛选后的数据重新初始化客户选项
             reinitializeCustomerOptionsBasedOnFilteredData() {
                 const filteredCustomers = [...new Set(
-                    this.filteredData.map(item => item[FIELD_MAPPING['客户名称']]?.toString().trim()).filter(Boolean)
+                    this.filteredData.map(item => getFieldValue(item, '客户名称')?.toString().trim()).filter(Boolean)
                 )].sort();
 
                 const list1 = document.getElementById('customerOptionsList');
@@ -1635,17 +1671,17 @@
                 document.getElementById('totalCycles').textContent = totalCycles;
 
                 const satellites = [...new Set(
-                    this.filteredData.map(item => item[FIELD_MAPPING['卫星名称']]?.toString().trim()).filter(Boolean)
+                    this.filteredData.map(item => getFieldValue(item, '卫星名称')?.toString().trim()).filter(Boolean)
                 )];
                 document.getElementById('satelliteCount').textContent = satellites.length;
 
                 const customers = [...new Set(
-                    this.filteredData.map(item => item[FIELD_MAPPING['客户名称']]?.toString().trim()).filter(Boolean)
+                    this.filteredData.map(item => getFieldValue(item, '客户名称')?.toString().trim()).filter(Boolean)
                 )];
                 document.getElementById('customerCount').textContent = customers.length;
 
                 const stations = [...new Set(
-                    this.filteredData.map(item => item[FIELD_MAPPING['测站名称']]?.toString().trim()).filter(Boolean)
+                    this.filteredData.map(item => getFieldValue(item, '测站名称')?.toString().trim()).filter(Boolean)
                 )];
                 document.getElementById('stationCount').textContent = stations.length;
 
@@ -1663,7 +1699,7 @@
             calculateActiveSatellites() {
                 const satelliteCounts = {};
                 this.filteredData.forEach(item => {
-                    const satellite = item[FIELD_MAPPING['卫星名称']]?.toString().trim();
+                    const satellite = getFieldValue(item, '卫星名称')?.toString().trim();
                     if (satellite) {
                         satelliteCounts[satellite] = (satelliteCounts[satellite] || 0) + 1;
                     }
@@ -1689,7 +1725,7 @@
             generateCustomerPieChart() {
                 const customerCounts = {};
                 this.filteredData.forEach(item => {
-                    const customer = item[FIELD_MAPPING['客户名称']]?.toString().trim();
+                    const customer = getFieldValue(item, '客户名称')?.toString().trim();
                     if (customer) customerCounts[customer] = (customerCounts[customer] || 0) + 1;
                 });
                 const labels = Object.keys(customerCounts);
@@ -1702,7 +1738,7 @@
             generateCustomerBarChart() {
                 const customerCounts = {};
                 this.filteredData.forEach(item => {
-                    const customer = item[FIELD_MAPPING['客户名称']]?.toString().trim();
+                    const customer = getFieldValue(item, '客户名称')?.toString().trim();
                     if (customer) customerCounts[customer] = (customerCounts[customer] || 0) + 1;
                 });
 
@@ -1720,7 +1756,7 @@
             generateStationBarChart() {
                 const stationCounts = {};
                 this.filteredData.forEach(item => {
-                    const station = item[FIELD_MAPPING['测站名称']]?.toString().trim();
+                    const station = getFieldValue(item, '测站名称')?.toString().trim();
                     if (station) stationCounts[station] = (stationCounts[station] || 0) + 1;
                 });
 
@@ -1748,15 +1784,15 @@
                 if (emptyEl) emptyEl.classList.add('hidden');
 
                 const customerData = this.filteredData.filter(item =>
-                    this.selectedCustomers.includes(item[FIELD_MAPPING['客户名称']]?.toString().trim())
+                    this.selectedCustomers.includes(getFieldValue(item, '客户名称')?.toString().trim())
                 );
 
                 const customerSatelliteCounts = {};
                 const satellites = new Set();
 
                 customerData.forEach(item => {
-                    const customer = item[FIELD_MAPPING['客户名称']]?.toString().trim();
-                    const satellite = item[FIELD_MAPPING['卫星名称']]?.toString().trim();
+                    const customer = getFieldValue(item, '客户名称')?.toString().trim();
+                    const satellite = getFieldValue(item, '卫星名称')?.toString().trim();
 
                     if (customer && satellite) {
                         if (!customerSatelliteCounts[customer]) customerSatelliteCounts[customer] = {};
@@ -1798,12 +1834,12 @@
 
                 this.selectedCustomers.forEach((customer, index) => {
                     const customerData = this.filteredData.filter(item =>
-                        item[FIELD_MAPPING['客户名称']]?.toString().trim() === customer
+                        getFieldValue(item, '客户名称')?.toString().trim() === customer
                     );
 
                     const stationCounts = {};
                     customerData.forEach(item => {
-                        const station = item[FIELD_MAPPING['测站名称']]?.toString().trim();
+                        const station = getFieldValue(item, '测站名称')?.toString().trim();
                         if (station) stationCounts[station] = (stationCounts[station] || 0) + 1;
                     });
 
@@ -1930,6 +1966,63 @@
                         }
                     }
                 });
+            }
+
+            // 启动缓存监听
+            startCacheMonitoring() {
+                console.log('🔍 启动IndexedDB缓存监听...');
+                
+                // 获取初始缓存状态
+                this.getCacheLastUpdated().then(time => {
+                    this.lastCacheCheckTime = time;
+                    console.log('📋 初始缓存时间:', time ? new Date(time).toLocaleString() : '未知');
+                });
+
+                // 每3秒检查一次缓存是否有更新
+                this.cacheMonitoringInterval = setInterval(async () => {
+                    const currentTime = await this.getCacheLastUpdated();
+                    
+                    if (currentTime && this.lastCacheCheckTime && currentTime > this.lastCacheCheckTime) {
+                        console.log('🔄 检测到缓存更新，自动刷新数据...');
+                        console.log('上次检查时间:', new Date(this.lastCacheCheckTime).toLocaleString());
+                        console.log('当前缓存时间:', new Date(currentTime).toLocaleString());
+                        
+                        this.lastCacheCheckTime = currentTime;
+                        await this.reloadData();
+                    }
+                }, 3000);
+            }
+
+            // 重新加载数据
+            async reloadData() {
+                try {
+                    await this.loadData();
+                    console.log('✅ 缓存监听：数据重新加载完成');
+                } catch (error) {
+                    console.error('❌ 缓存监听：重新加载数据失败:', error);
+                }
+            }
+
+            // 获取缓存最后更新时间
+            async getCacheLastUpdated() {
+                try {
+                    await this.cacheManager.db.ensureInitialized();
+                    return new Promise((resolve) => {
+                        const transaction = this.cacheManager.db.db.transaction(['metadata'], 'readonly');
+                        const store = transaction.objectStore('metadata');
+                        const request = store.get('cache_last_updated');
+
+                        request.onsuccess = () => {
+                            const result = request.result;
+                            resolve(result ? result.timestamp : null);
+                        };
+
+                        request.onerror = () => resolve(null);
+                    });
+                } catch (error) {
+                    console.warn('获取缓存时间失败:', error);
+                    return null;
+                }
             }
         }
 
