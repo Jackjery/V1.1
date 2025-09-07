@@ -716,54 +716,92 @@
                             borderColor: '#ffffff',
                             datalabels: {
                                 display: showLabels,
-                                color: function(context) {
-                                    // 动态计算文本颜色 - 如果数据点太小，使用外部显示
+                                backgroundColor: function(context) {
+                                    // 为外部标签添加半透明背景
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? context.dataset.borderColor : '#ffffff';
+                                    return percentage < 8 ? 'rgba(255, 255, 255, 0.9)' : 'transparent';
+                                },
+                                borderColor: function(context) {
+                                    // 为外部标签添加边框
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 8 ? 'rgba(0, 0, 0, 0.1)' : 'transparent';
+                                },
+                                borderRadius: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 8 ? 4 : 0;
+                                },
+                                borderWidth: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 8 ? 1 : 0;
+                                },
+                                color: function(context) {
+                                    // 动态计算文本颜色
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 8 ? '#333333' : '#ffffff';
                                 },
                                 font: {
-                                    size: 11,
+                                    size: function(context) {
+                                        // 小分片使用较小字体
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = (context.parsed / total) * 100;
+                                        return percentage < 8 ? 10 : 11;
+                                    },
                                     weight: 'bold'
                                 },
                                 anchor: function(context) {
-                                    // 小分片使用外部显示
+                                    // 小分片和拥挤区域使用外部显示
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? 'end' : 'center';
+                                    return percentage < 8 ? 'end' : 'center';
                                 },
                                 align: function(context) {
-                                    // 小分片使用外部显示
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? 'end' : 'center';
+                                    return percentage < 8 ? 'end' : 'center';
                                 },
                                 offset: function(context) {
-                                    // 小分片增加偏移距离
+                                    // 外部标签增加更大偏移距离避免重叠
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? 10 : 0;
+                                    if (percentage < 5) return 25; // 很小的分片
+                                    if (percentage < 8) return 15; // 小分片
+                                    return 0; // 大分片
+                                },
+                                padding: function(context) {
+                                    // 为外部标签添加内边距
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = (context.parsed / total) * 100;
+                                    return percentage < 8 ? 6 : 0;
                                 },
                                 formatter: function(value, context) {
                                     if (!showLabels || value <= 0) return '';
                                     const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = ((value / total) * 100).toFixed(1);
-                                    // 对于小分片，只显示百分比
-                                    if (percentage < 5) {
-                                        return `${percentage}%`;
+                                    
+                                    // 根据分片大小调整显示内容
+                                    if (percentage < 3) {
+                                        return `${percentage}%`; // 很小分片只显示百分比
+                                    } else if (percentage < 8) {
+                                        return `${context.label}\n${percentage}%`; // 小分片显示标签+百分比
+                                    } else {
+                                        return `${value}\n(${percentage}%)`; // 大分片显示数值+百分比
                                     }
-                                    return `${value}\n(${percentage}%)`;
                                 },
-                                textStrokeColor: function(context) {
-                                    // 为外部文本添加描边以提高可读性
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? '#ffffff' : 'transparent';
-                                },
-                                textStrokeWidth: function(context) {
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = (context.parsed / total) * 100;
-                                    return percentage < 5 ? 2 : 0;
+                                listeners: {
+                                    enter: function(context) {
+                                        // 鼠标悬停时高亮引导线
+                                        context.active = true;
+                                        return true;
+                                    },
+                                    leave: function(context) {
+                                        context.active = false;
+                                        return true;
+                                    }
                                 }
                             }
                         }]
@@ -786,7 +824,31 @@
                                     boxWidth: 12,
                                     padding: 15,
                                     usePointStyle: true,
-                                    pointStyle: 'rect'
+                                    pointStyle: 'rect',
+                                    generateLabels: function(chart) {
+                                        // 自定义图例生成，避免过长的标签
+                                        const data = chart.data;
+                                        if (data.labels.length && data.datasets.length) {
+                                            return data.labels.map((label, i) => {
+                                                const dataset = data.datasets[0];
+                                                const value = dataset.data[i];
+                                                const total = dataset.data.reduce((a, b) => a + b, 0);
+                                                const percentage = ((value / total) * 100).toFixed(1);
+                                                
+                                                // 截断过长的标签
+                                                const truncatedLabel = label.length > 15 ? label.substring(0, 15) + '...' : label;
+                                                
+                                                return {
+                                                    text: `${truncatedLabel} (${percentage}%)`,
+                                                    fillStyle: dataset.backgroundColor[i],
+                                                    strokeStyle: dataset.borderColor || '#ffffff',
+                                                    lineWidth: 1,
+                                                    index: i
+                                                };
+                                            });
+                                        }
+                                        return [];
+                                    }
                                 }
                             },
                             tooltip: {
@@ -842,8 +904,12 @@
                 // 检查是否显示数据标签
                 const showLabels = document.getElementById('showDataLabels')?.checked || false;
 
-                const hasData = datasets && datasets.some(dataset => dataset.data.some(v => v > 0));
+                const hasData = datasets && datasets.length > 0 && datasets.some(dataset => 
+                    dataset.data && dataset.data.length > 0 && dataset.data.some(v => v != null && v > 0)
+                );
+                console.log(`📊 ${chartId} 数据验证:`, { hasData, datasets, labels });
                 if (!hasData) {
+                    console.warn(`📊 ${chartId} 没有有效数据，显示空状态`);
                     if (emptyState) emptyState.classList.remove('hidden');
                     return null;
                 }
@@ -888,7 +954,7 @@
                     borderColor: colors[i % colors.length],
                     borderWidth: 1,
                     datalabels: {
-                        display: showLabels && !isLargeDataset,
+                        display: showLabels,
                         color: colors[i % colors.length],
                         anchor: 'end',
                         align: 'top',
@@ -915,7 +981,7 @@
                         maintainAspectRatio: false,
                         plugins: {
                             datalabels: {
-                                display: showLabels && !isLargeDataset
+                                display: showLabels
                             },
                             title: {
                                 display: true,
