@@ -2138,18 +2138,21 @@
             // 获取缓存最后更新时间
             async getCacheLastUpdated() {
                 try {
-                    await this.cacheManager.db.ensureInitialized();
+                    await this.cacheManager.init();
                     return new Promise((resolve) => {
-                        const transaction = this.cacheManager.db.db.transaction(['metadata'], 'readonly');
-                        const store = transaction.objectStore('metadata');
-                        const request = store.get('cache_last_updated');
+                        const transaction = this.cacheManager.db.transaction([this.cacheManager.metaStoreName], 'readonly');
+                        const store = transaction.objectStore(this.cacheManager.metaStoreName);
+                        const request = store.get('allDataMeta');
 
                         request.onsuccess = () => {
                             const result = request.result;
-                            resolve(result ? result.timestamp : null);
+                            resolve(result ? result.lastUpdated : null);
                         };
 
-                        request.onerror = () => resolve(null);
+                        request.onerror = () => {
+                            console.warn('获取缓存时间失败:', request.error);
+                            resolve(null);
+                        };
                     });
                 } catch (error) {
                     console.warn('获取缓存时间失败:', error);
