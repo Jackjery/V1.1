@@ -729,6 +729,24 @@
             return '';
         }
 
+        // 时间显示转换函数：将UTC时间转换为北京时间显示（+8小时）
+        function convertToDisplayTime(utcTimeString) {
+            if (!utcTimeString) return '00:00';
+            
+            const [hours, minutes] = utcTimeString.split(':').map(Number);
+            const displayHours = (hours + 8) % 24;
+            return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
+
+        // 显示时间转换为UTC时间：将北京时间转换为UTC时间（-8小时）
+        function convertToUtcTime(displayTimeString) {
+            if (!displayTimeString) return '00:00';
+            
+            const [hours, minutes] = displayTimeString.split(':').map(Number);
+            const utcHours = (hours - 8 + 24) % 24;
+            return `${utcHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
+
         // IndexedDB工具类（不变）
         class SatelliteDB {
             constructor() {
@@ -1678,6 +1696,7 @@
                 await this.loadData();
                 this.addDebugButtons();
                 this.bindDownloadButtons();
+                this.updateTimeDisplays();
             }
 
             setupEventListeners() {
@@ -1705,8 +1724,10 @@
 
                 const dayStartEl = document.getElementById('dayStart');
                 if (dayStartEl) dayStartEl.addEventListener('change', (e) => {
-                    document.getElementById('dayStartDisplay').textContent = e.target.value;
-                    document.getElementById('dayEndDisplay').textContent = e.target.value;
+                    // 显示北京时间（UTC+8）
+                    const displayTime = convertToDisplayTime(e.target.value);
+                    document.getElementById('dayStartDisplay').textContent = displayTime;
+                    document.getElementById('dayEndDisplay').textContent = displayTime;
                 });
 
                 // 数据标签复选框事件
@@ -1792,8 +1813,10 @@
                 }, 10);
 
                 document.getElementById('dayStart').value = this.cycleEngine.config.day.start;
-                document.getElementById('dayStartDisplay').textContent = this.cycleEngine.config.day.start;
-                document.getElementById('dayEndDisplay').textContent = this.cycleEngine.config.day.start;
+                // 显示北京时间（UTC+8）
+                const displayTime = convertToDisplayTime(this.cycleEngine.config.day.start);
+                document.getElementById('dayStartDisplay').textContent = displayTime;
+                document.getElementById('dayEndDisplay').textContent = displayTime;
 
                 document.getElementById('weekStartDay').value = this.cycleEngine.config.week.startDay;
                 document.getElementById('weekStartTime').value = this.cycleEngine.config.week.startTime;
@@ -1820,7 +1843,7 @@
             saveCycleConfig() {
                 const newConfig = {
                     day: {
-                        start: document.getElementById('dayStart').value
+                        start: document.getElementById('dayStart').value // 保存UTC时间
                     },
                     week: {
                         startDay: parseInt(document.getElementById('weekStartDay').value),
@@ -2060,39 +2083,24 @@
                 return isNaN(fallback.getTime()) ? null : fallback;
             }
 
-            // 将 start/end 的 YYYY-MM-DD 输入映射到基于周期规则的实际边界（start inclusive, end inclusive）
+            // 将 start/end 的 YYYY-MM-DD 输入映射到严格的用户日期边界（不按周期边界扩展）
             computeDateRangeForGroup(groupType, startDateStr, endDateStr) {
                 let startBound = null;
                 let endBound = null;
 
-                const makeMidday = (dateStr) => {
-                    if (!dateStr) return null;
-                    const parts = dateStr.split('-').map(Number);
-                    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0);
-                };
-
                 try {
+                    // 直接使用用户指定的日期范围，不扩展到周期边界
                     if (startDateStr) {
-                        const midStart = makeMidday(startDateStr);
-                        const gStart = this.cycleEngine.getDayGroup
-                            ? (groupType === 'day' ? this.cycleEngine.getDayGroup(midStart) : this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midStart, groupType) : null)
-                            : (this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midStart, groupType) : null);
-                        if (gStart) startBound = gStart.rangeStart;
+                        // 开始日期：YYYY-MM-DD 00:00:00
+                        startBound = this.parseToLocalDate(`${startDateStr} 00:00:00`);
                     }
 
                     if (endDateStr) {
-                        const midEnd = makeMidday(endDateStr);
-                        const gEnd = this.cycleEngine.getDayGroup
-                            ? (groupType === 'day' ? this.cycleEngine.getDayGroup(midEnd) : this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midEnd, groupType) : null)
-                            : (this.cycleEngine.getGroup ? this.cycleEngine.getGroup(midEnd, groupType) : null);
-
-                        if (gEnd) {
-                            // inclusive end bound -> rangeEnd - 1ms
-                            endBound = new Date(gEnd.rangeEnd.getTime() - 1);
-                        }
+                        // 结束日期：YYYY-MM-DD 23:59:59（包含整天）
+                        endBound = this.parseToLocalDate(`${endDateStr} 23:59:59`);
                     }
                 } catch (err) {
-                    console.warn('computeDateRangeForGroup failed, fallback to local day bounds', err);
+                    console.warn('computeDateRangeForGroup failed', err);
                     if (startDateStr) startBound = this.parseToLocalDate(`${startDateStr} 00:00:00`);
                     if (endDateStr) endBound = this.parseToLocalDate(`${endDateStr} 23:59:59`);
                 }
@@ -3084,6 +3092,16 @@
                         notification.parentNode.removeChild(notification);
                     }
                 }, 3000);
+            }
+
+            // 更新时间显示为北京时间
+            updateTimeDisplays() {
+                const dayStartEl = document.getElementById('dayStart');
+                if (dayStartEl && dayStartEl.value) {
+                    const displayTime = convertToDisplayTime(dayStartEl.value);
+                    document.getElementById('dayStartDisplay').textContent = displayTime;
+                    document.getElementById('dayEndDisplay').textContent = displayTime;
+                }
             }
         }
 
